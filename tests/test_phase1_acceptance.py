@@ -1,0 +1,249 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from cbx250_model.demand.phase1_runner import run_phase1_scenario
+from cbx250_model.inputs.excel_import import import_commercial_forecast_workbook
+from cbx250_model.inputs.excel_template import build_commercial_forecast_template
+
+from _phase1_acceptance_support import (
+    configure_template_for_mode,
+    read_csv_rows,
+    sum_csv_numeric,
+    write_curated_phase1_scenario,
+    write_import_backed_phase1_scenario,
+)
+
+
+def _monthlyized_output_map(rows: list[dict[str, str]]) -> dict[tuple[str, str, str, str, int], float]:
+    return {
+        (
+            row["scenario_name"],
+            row["geography_code"],
+            row["module"],
+            row["segment_code"],
+            int(row["month_index"]),
+        ): float(row["patients_treated_monthly"])
+        for row in rows
+    }
+
+
+def _runner_output_map(result: object) -> dict[tuple[str, str, str, str, int], float]:
+    return {
+        (
+            row.scenario_name,
+            row.geography_code,
+            row.module,
+            row.segment_code,
+            row.month_index,
+        ): row.patients_treated
+        for row in result.outputs
+    }
+
+
+@pytest.mark.parametrize(
+    ("forecast_grain", "forecast_frequency", "expected_source_total", "expected_key", "expected_value"),
+    (
+        (
+            "module_level",
+            "monthly",
+            50.0,
+            ("BASE_2029", "US", "AML", "1L_fit", 1),
+            10.0,
+        ),
+        (
+            "segment_level",
+            "monthly",
+            28.0,
+            ("BASE_2029", "US", "AML", "1L_fit", 1),
+            11.0,
+        ),
+        (
+            "module_level",
+            "annual",
+            426.0,
+            ("BASE_2029", "US", "AML", "1L_fit", 1),
+            0.96,
+        ),
+        (
+            "segment_level",
+            "annual",
+            162.0,
+            ("BASE_2029", "US", "AML", "1L_fit", 1),
+            0.96,
+        ),
+    ),
+)
+def test_phase1_acceptance_reconciles_authoritative_monthlyized_output_across_forecast_modes(
+    tmp_path: Path,
+    forecast_grain: str,
+    forecast_frequency: str,
+    expected_source_total: float,
+    expected_key: tuple[str, str, str, str, int],
+    expected_value: float,
+) -> None:
+    workbook_path = tmp_path / f"{forecast_grain}_{forecast_frequency}.xlsx"
+    output_dir = tmp_path / f"curated_{forecast_grain}_{forecast_frequency}"
+
+    build_commercial_forecast_template(workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain=forecast_grain,
+        forecast_frequency=forecast_frequency,
+    )
+    import_result = import_commercial_forecast_workbook(workbook_path, output_dir=output_dir)
+
+    assert import_result.file_paths["monthlyized_output"].name == "monthlyized_output.csv"
+    assert import_result.file_paths["monthlyized_output"].exists()
+
+    active_contract_key = (
+        "commercial_forecast_module_level"
+        if forecast_grain == "module_level"
+        else "commercial_forecast_segment_level"
+    )
+    active_contract_rows = read_csv_rows(import_result.file_paths[active_contract_key])
+    monthlyized_rows = read_csv_rows(import_result.file_paths["monthlyized_output"])
+    monthlyized_map = _monthlyized_output_map(monthlyized_rows)
+
+    assert sum_csv_numeric(active_contract_rows, "patients_treated") == pytest.approx(expected_source_total)
+    assert sum_csv_numeric(monthlyized_rows, "patients_treated_monthly") == pytest.approx(expected_source_total)
+    assert monthlyized_map[expected_key] == pytest.approx(expected_value)
+    assert {"CML_Incident", "CML_Prevalent"} <= {row["module"] for row in monthlyized_rows}
+
+    csv_keys = list(monthlyized_map)
+    assert len(csv_keys) == len(set(csv_keys))
+
+    scenario_path = write_import_backed_phase1_scenario(
+        tmp_path / f"runner_{forecast_grain}_{forecast_frequency}",
+        scenario_name=import_result.context.scenario_name,
+        forecast_grain=forecast_grain,
+        input_dir=output_dir,
+    )
+    run_result = run_phase1_scenario(scenario_path)
+    runner_map = _runner_output_map(run_result)
+
+    assert len(run_result.calendar.months) == 240
+    assert not run_result.validation.has_errors
+    assert set(runner_map) == set(monthlyized_map)
+    for key, patients_treated in monthlyized_map.items():
+        assert runner_map[key] == pytest.approx(patients_treated)
+
+
+def test_phase1_acceptance_mix_sum_errors_are_actionable_for_aml_and_mds(tmp_path: Path) -> None:
+    scenario_path = write_curated_phase1_scenario(
+        tmp_path,
+        forecast_grain="module_level",
+        module_level_rows=[
+            "US,AML,1,100",
+            "US,MDS,1,50",
+        ],
+        aml_mix_rows=[
+            "US,1,1L_fit,0.5",
+            "US,1,1L_unfit,0.2",
+            "US,1,RR,0.2",
+        ],
+        mds_mix_rows=[
+            "US,1,HR_MDS,0.7",
+            "US,1,LR_MDS,0.4",
+        ],
+        cml_prevalent_rows=[],
+    )
+
+    result = run_phase1_scenario(scenario_path)
+    assert result.validation.has_errors
+    assert "segment_mix.sum_not_one" in {issue.code for issue in result.validation.issues}
+    aml_issue = next(
+        issue for issue in result.validation.issues if issue.code == "segment_mix.sum_not_one" and issue.context["module"] == "AML"
+    )
+    mds_issue = next(
+        issue for issue in result.validation.issues if issue.code == "segment_mix.sum_not_one" and issue.context["module"] == "MDS"
+    )
+    assert aml_issue.context == {
+        "scenario_name": "ACCEPTANCE_BASE",
+        "geography_code": "US",
+        "module": "AML",
+        "month_index": "1",
+    }
+    assert mds_issue.context == {
+        "scenario_name": "ACCEPTANCE_BASE",
+        "geography_code": "US",
+        "module": "MDS",
+        "month_index": "1",
+    }
+    assert "sum to" in aml_issue.message
+    assert "sum to" in mds_issue.message
+
+
+def test_phase1_acceptance_missing_mix_rows_fail_with_actionable_context(tmp_path: Path) -> None:
+    scenario_path = write_curated_phase1_scenario(
+        tmp_path,
+        forecast_grain="module_level",
+        module_level_rows=["US,AML,1,100"],
+        aml_mix_rows=[
+            "US,1,1L_fit,0.5",
+            "US,1,1L_unfit,0.5",
+        ],
+        cml_prevalent_rows=[],
+    )
+
+    result = run_phase1_scenario(scenario_path)
+    issue = next(issue for issue in result.validation.issues if issue.code == "segment_mix.missing_required_rows")
+
+    assert result.validation.has_errors
+    assert issue.context == {
+        "scenario_name": "ACCEPTANCE_BASE",
+        "geography_code": "US",
+        "module": "AML",
+        "month_index": "1",
+    }
+    assert "RR" in issue.message
+
+
+def test_phase1_acceptance_cml_prevalent_pool_guardrail_is_actionable_without_requiring_depletion_engine(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_curated_phase1_scenario(
+        tmp_path,
+        forecast_grain="module_level",
+        module_level_rows=["US,CML_Prevalent,1,30"],
+        cml_prevalent_rows=["US,1,20"],
+    )
+
+    result = run_phase1_scenario(scenario_path)
+    issue = next(issue for issue in result.validation.issues if issue.code == "cml_prevalent.pool_exceeded")
+
+    assert result.validation.has_errors
+    assert issue.context == {
+        "scenario_name": "ACCEPTANCE_BASE",
+        "geography_code": "US",
+        "module": "CML_Prevalent",
+        "month_index": "1",
+    }
+    assert "30.0 > 20.0" in issue.message
+
+
+def test_phase1_acceptance_invalid_segment_codes_fail_fast_in_current_phase1_behavior(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_curated_phase1_scenario(
+        tmp_path,
+        forecast_grain="segment_level",
+        segment_level_rows=["US,AML,NOT_A_REAL_SEGMENT,1,10"],
+    )
+
+    with pytest.raises(ValueError, match="segment_code"):
+        run_phase1_scenario(scenario_path)
+
+
+def test_phase1_acceptance_real_scenario_loads_expected_geographies_and_full_horizon() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    scenario_path = repo_root / "config" / "scenarios" / "real_scenario_01.toml"
+
+    result = run_phase1_scenario(scenario_path)
+    geography_codes = {row["geography_code"] for row in result.dimensions["dim_geography"]}
+
+    assert len(result.calendar.months) == 240
+    assert geography_codes == {"EU", "US"}
+    assert not result.validation.has_errors

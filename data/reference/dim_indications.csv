@@ -1,0 +1,5 @@
+indication_code,display_name,phase_scope,notes
+AML,Acute Myeloid Leukemia,Phase1,Separate demand module
+MDS,Myelodysplastic Syndromes,Phase1,Separate demand module
+CML,Chronic Myeloid Leukemia,Phase1,Split into incident and prevalent modules
+

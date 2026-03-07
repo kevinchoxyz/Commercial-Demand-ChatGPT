@@ -1,0 +1,24 @@
+# REAL SCENARIO 01
+# The raw workbook is annual and does not provide an explicit full launch date.
+# The anchor date remains the current Phase 1 placeholder until approved source data is available.
+
+[model]
+phase = 1
+build_scope = "deterministic_demand_foundation"
+primary_demand_input = "Commercial Patients Treated"
+forecast_grain = "module_level"
+
+[horizon]
+us_aml_mds_initial_approval_date = "2029-01-01"
+forecast_horizon_months = 240
+time_grain = "monthly"
+
+[modules]
+enabled = ["AML", "MDS", "CML_Incident", "CML_Prevalent"]
+disabled = ["trade", "production", "inventory", "financials", "monte_carlo"]
+
+[validation]
+enforce_segment_share_rules = true
+enforce_cml_prevalent_pool_constraints = true
+enforce_epi_crosscheck_warning = false
+

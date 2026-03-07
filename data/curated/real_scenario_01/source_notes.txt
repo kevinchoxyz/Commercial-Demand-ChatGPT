@@ -1,0 +1,17 @@
+Extracted source notes from treatable pts 250.xlsx
+
+- •US population:  $340M
+- •EU population: $450M
+- •AML – US : peak ~7k pts per year (AML US incidence 22k)
+- •AML – EU: peak  ~14k pts per year (AML EU incidence 44k)
+- •CML – US: peak ~3.2k pts per year (CML US incidence 10k)
+- −CML prevalent: 25k pts à distribute over 1st 4 yrs (10%-20%-30%-40%)
+- •CML – EU: peak ~2.1k pts per year (CML EU incidence 6.5k)
+- −CML prevalent: 12.5k pts à  distribute over 1st 4yrs (10%-20%-30%-40%)
+- •MDS – US: peak ~5.8k pts per year (MDS US incidence 18k)
+- •MDS – EU: peak ~11.6k pts per yr (MDS EU incidence 36k)
+- •For incident population: ramp up to peak in 5yrs (20-40-60-80-100)
+- •Assume launch in CML 2yrs after AML and MDS
+- •Assume launch in EU 3yrs after US
+- •Assume treating pts for 12mo for AML; 24mo for MDS
+- •Assume incidence/prevalence numbers are stable

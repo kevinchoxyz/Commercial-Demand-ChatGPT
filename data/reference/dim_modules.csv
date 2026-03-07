@@ -1,0 +1,5 @@
+module,disease,phase_scope,status,notes
+AML,AML,Phase1,active,Separate demand module by indication and geography
+MDS,MDS,Phase1,active,Separate demand module by indication and geography
+CML_Incident,CML,Phase1,active,Separate CML incident module required by current scope
+CML_Prevalent,CML,Phase1,active,Separate CML prevalent module required by current scope

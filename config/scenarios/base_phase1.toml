@@ -1,0 +1,13 @@
+# PLACEHOLDER SAMPLE SCENARIO
+# File paths are resolved relative to this file.
+
+scenario_name = "BASE_TEMPLATE_ONLY"
+parameter_config = "../parameters/phase1_demand_parameters.toml"
+
+[inputs]
+commercial_forecast_module_level = "../../data/reference/commercial_forecast_module_level_template.csv"
+commercial_forecast_segment_level = "../../data/reference/commercial_forecast_segment_level_template.csv"
+epi_crosscheck = "../../data/reference/inp_epi_crosscheck_template.csv"
+aml_segment_mix = "../../data/reference/aml_segment_mix_template.csv"
+mds_segment_mix = "../../data/reference/mds_segment_mix_template.csv"
+cml_prevalent = "../../data/reference/inp_cml_prevalent_template.csv"

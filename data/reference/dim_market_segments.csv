@@ -1,0 +1,8 @@
+module,disease,segment,phase_scope,status,notes
+AML,AML,1L_fit,Phase1,active,Explicit Phase 1 AML segment
+AML,AML,1L_unfit,Phase1,active,Explicit Phase 1 AML segment
+AML,AML,RR,Phase1,active,Explicit Phase 1 AML segment
+MDS,MDS,HR_MDS,Phase1,active,Explicit Phase 1 MDS segment
+MDS,MDS,LR_MDS,Phase1,active,Explicit Phase 1 MDS segment
+CML_Incident,CML,CML_Incident,Phase1,placeholder,Module-level placeholder segment because CML has separate modules instead of AML/MDS-style segment mix
+CML_Prevalent,CML,CML_Prevalent,Phase1,placeholder,Module-level placeholder segment because CML has separate modules instead of AML/MDS-style segment mix

@@ -1,0 +1,22 @@
+# PLACEHOLDER SAMPLE CONFIG
+# Replace sample values with approved specification content.
+
+[model]
+phase = 1
+build_scope = "deterministic_demand_foundation"
+primary_demand_input = "Commercial Patients Treated"
+forecast_grain = "module_level"
+
+[horizon]
+us_aml_mds_initial_approval_date = "2029-01-01"
+forecast_horizon_months = 240
+time_grain = "monthly"
+
+[modules]
+enabled = ["AML", "MDS", "CML_Incident", "CML_Prevalent"]
+disabled = ["trade", "production", "inventory", "financials", "monte_carlo"]
+
+[validation]
+enforce_segment_share_rules = true
+enforce_cml_prevalent_pool_constraints = true
+enforce_epi_crosscheck_warning = false

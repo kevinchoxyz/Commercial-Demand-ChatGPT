@@ -1,0 +1,9 @@
+geography_code,module,launch_year_index,launch_month_index,source_method,notes
+EU,AML,4,37,inferred_from_first_nonzero_annual_forecast,Current Phase 1 runner does not consume this file directly.
+EU,CML_Incident,6,61,inferred_from_first_nonzero_annual_forecast,Current Phase 1 runner does not consume this file directly.
+EU,CML_Prevalent,6,61,inferred_from_first_nonzero_annual_forecast,Current Phase 1 runner does not consume this file directly.
+EU,MDS,4,37,inferred_from_first_nonzero_annual_forecast,Current Phase 1 runner does not consume this file directly.
+US,AML,1,1,inferred_from_first_nonzero_annual_forecast,Current Phase 1 runner does not consume this file directly.
+US,CML_Incident,3,25,inferred_from_first_nonzero_annual_forecast,Current Phase 1 runner does not consume this file directly.
+US,CML_Prevalent,3,25,inferred_from_first_nonzero_annual_forecast,Current Phase 1 runner does not consume this file directly.
+US,MDS,1,1,inferred_from_first_nonzero_annual_forecast,Current Phase 1 runner does not consume this file directly.

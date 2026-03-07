@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.mypy_cache/
+
+# Environments
+.venv/
+venv/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Local outputs
+data/raw/*
+data/outputs/*
+!data/raw/.gitkeep
+!data/outputs/.gitkeep
+

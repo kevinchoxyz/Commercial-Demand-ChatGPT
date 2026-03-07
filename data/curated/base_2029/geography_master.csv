@@ -1,0 +1,3 @@
+geography_code,market_group,currency_code,launch_sequence_rank,active_flag
+US,North America,USD,1,yes
+EU,Europe,EUR,2,yes
