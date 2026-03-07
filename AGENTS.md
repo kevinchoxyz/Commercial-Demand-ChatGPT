@@ -13,8 +13,8 @@ Use this precedence order for implementation decisions:
 4. tests and validation rules already in the repository
 5. temporary development defaults marked clearly as `PLACEHOLDER`
 
-## Scope For First Implementation Pass
-Build only the Phase 1 deterministic demand foundation.
+## Current Implemented Scope
+Build and maintain the accepted deterministic Phase 1 plus Phase 2 baseline only.
 
 Included:
 - repository scaffold
@@ -25,6 +25,8 @@ Included:
 - deterministic demand modules for AML, MDS, CML Incident, CML Prevalent
 - validation framework
 - monthly patient-treated output tables
+- deterministic dose and unit cascade consuming Phase 1 normalized monthly outputs
+- deterministic outputs for doses, FG, SS, DP, and DS
 - unit tests
 - example configs and sample input files
 
@@ -38,6 +40,7 @@ Out of scope:
 
 ## Core Architecture Rules
 - Commercial / brand `Patients Treated` forecast is the primary demand driver.
+- The authoritative Phase 1 upstream contract for Phase 2 is `monthlyized_output.csv`.
 - Epidemiology is a validation / fallback layer only.
 - Engine grain must remain monthly across the full 240-month horizon.
 - Reporting rollups are downstream presentation logic, not a core calculation-grain change.
@@ -47,12 +50,14 @@ Out of scope:
 - Do not create an AML/MDS-style internal segment-mix table for CML in v1.
 - Year 1 anchor is `us_aml_mds_initial_approval_date`.
 - Default approval year is 2029 but the value must remain editable.
+- Base operating mode remains `separate_sku_first`; do not build co-pack logic beyond a future hook.
+- Solution Stabilizer demand must remain a config-driven parallel requirement to FG demand.
 
 ## Coding Rules
 - Read `docs/model_contract/*` before changing model logic.
 - Use config-driven design.
 - Keep assumptions out of code whenever possible.
-- Do not hard-code stochastic variables.
+- Do not hard-code stochastic variables or manufacturing performance logic.
 - Prefer small, testable modules.
 - Use canonical parameter names consistently.
 - Add concise comments only where the logic is not obvious.

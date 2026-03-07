@@ -1,6 +1,6 @@
 # CBX-250 Commercial Planning Model
 
-This repository contains the Phase 1 scaffold for a spec-driven CBX-250 commercial demand and supply planning model. The current implementation is intentionally limited to the deterministic demand foundation and leaves later-phase capabilities as explicit placeholders.
+This repository contains the accepted Phase 1 deterministic demand foundation plus the deterministic Phase 2 dose and unit cascade for the CBX-250 commercial planning model. Later-phase capabilities remain explicit placeholders.
 
 ## Read These Files First
 - `docs/model_contract/model_contract_phase0.md`
@@ -10,23 +10,32 @@ This repository contains the Phase 1 scaffold for a spec-driven CBX-250 commerci
 - `AGENTS.md`
 
 ## Current Scope
-- Phase 1 deterministic demand foundation only
+- Accepted Phase 1 deterministic demand foundation
+- Deterministic Phase 2 dose and unit cascade
 - Monthly 240-month horizon
 - Config-driven setup
 - Demand logic for AML, MDS, CML Incident, and CML Prevalent
+- Phase 2 cascade outputs for doses, FG, SS, DP, and DS
 - Configurable commercial forecast grain:
   - `module_level`
   - `segment_level`
+- Configurable deterministic dose basis:
+  - `fixed`
+  - `weight_based`
 - Validation scaffolds for AML/MDS segment shares and CML prevalent pool limits
 
 ## Quick Start
 - `python -m pytest`
 - `python -m pytest tests/test_phase1_acceptance.py`
+- `python -m pytest tests/test_phase2_runner.py tests/test_phase2_acceptance.py`
+- `python -m pytest tests/test_forecast_workflow.py`
 - `python scripts/run_phase1.py --scenario config/scenarios/base_phase1.toml`
 - `python scripts/build_real_scenario_01.py`
 - `python scripts/run_phase1.py --scenario config/scenarios/real_scenario_01.toml`
 - `python scripts/generate_commercial_forecast_template.py`
 - `python scripts/import_commercial_forecast_workbook.py --workbook templates/CBX250_Commercial_Forecast_Template.xlsx`
+- `python scripts/run_phase2.py --scenario config/scenarios/base_phase2.toml`
+- `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029" --overwrite`
 
 ## Forecast Templates
 - `templates/CBX250_Commercial_Forecast_Template.xlsx`
@@ -49,9 +58,72 @@ This repository contains the Phase 1 scaffold for a spec-driven CBX-250 commerci
 - `data/curated/<scenario_name>/inp_cml_prevalent.csv` is the authoritative CML prevalent validation-pool file generated from workbook assumptions.
 - The workbook tab `Monthlyized_Output` is a generated/reference placeholder in Phase 1 unless future exporter logic explicitly writes rows back into the workbook.
 
+## One-Command Workflow
+- Run the end-to-end import plus deterministic cascade from the repo root with:
+  - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029"`
+- If `--scenario-name` is omitted, the wrapper derives a safe default from the workbook filename.
+- Optional arguments:
+  - `--phase2-scenario config/scenarios/base_phase2.toml`
+  - `--output-dir data/curated/real_2029`
+  - `--overwrite`
+- The wrapper does not duplicate business logic. It:
+  - imports the workbook with the existing importer
+  - verifies that authoritative `monthlyized_output.csv` was generated
+  - creates a generated Phase 2 scenario pointing to that CSV
+  - runs the existing deterministic Phase 2 cascade
+  - writes the final deterministic cascade CSV
+- Expected outputs from the wrapper are written to the selected output directory:
+  - `monthlyized_output.csv`
+  - `phase2_deterministic_cascade.csv`
+  - `generated_phase2_scenario.toml`
+  - the standard normalized Phase 1 CSV package and `workbook_import_summary.json`
+- The terminal summary reports:
+  - `scenario_name`
+  - `forecast_grain`
+  - `forecast_frequency`
+  - `geography_count`
+  - `output_row_count`
+  - `total_patients_treated`
+  - `total_fg_units_required`
+  - `total_ss_units_required`
+  - `total_dp_units_required`
+  - `total_ds_required`
+  - `validation_issue_count`
+  - authoritative Phase 1 and Phase 2 output paths
+
+## Phase 2 Deterministic Cascade
+- Phase 2 consumes the accepted Phase 1 normalized contract only: `data/curated/<scenario_name>/monthlyized_output.csv`.
+- Phase 2 does not read raw commercial forecast files or workbook entry tabs directly.
+- The dose basis is config-driven through `dose_basis = "fixed" | "weight_based"` with module-specific settings under `[module_settings.<module>]`.
+- The approved Phase 2 base-case assumptions in `config/parameters/phase2_deterministic_cascade.toml` are:
+  - fixed dose = `0.15 mg`
+  - weight-based dose = `0.0023 mg/kg`
+  - deterministic average patient weight = `80 kg`
+  - AML and MDS dosing cadence = `4.33 doses/month` (`QW`)
+  - `CML_Incident` and `CML_Prevalent` dosing cadence = `1.00 dose/month` (`Q4W`)
+  - `fg_mg_per_unit = 1.0 mg`
+  - `fg_vialing_rule = "ceil_mg_per_unit_no_sharing"` which implements dose-level vialing: `ceil(mg_per_dose_after_reduction / fg_mg_per_unit) * doses_required`
+- Step-up configuration is wired but inactive by default. Enabling it currently raises a clearly labeled `PLACEHOLDER` error instead of silently inventing logic.
+- Dose reductions are applied to mg first, then FG/SS/DP/DS are recalculated from the reduced patient-dose vial requirement.
+- `CML_Incident` and `CML_Prevalent` remain separate modules through the full cascade.
+- SS demand is derived in parallel from FG vial demand through `ss.ratio_to_fg`.
+- Active deterministic planning yields are `yield.plan.ds_to_dp` and `yield.plan.dp_to_fg`.
+- `yield.plan.ss` remains in config as a preserved future hook and is not currently applied to the Phase 2 SS parallel demand calculation.
+- `yield.plan.fg_pack` remains fixed at `1.0` as a preserved future hook and is not used to override the approved vial round-up rule in the current base case.
+
+## Phase 2 Outputs
+- `config/scenarios/base_phase2.toml` is the sample Phase 2 scenario.
+- `config/parameters/phase2_deterministic_cascade.toml` contains the Phase 2 config-driven business parameters.
+- The authoritative Phase 2 output table is the deterministic cascade CSV written by the scenario config under `[outputs].deterministic_cascade`.
+- The sample output path is `data/outputs/base_phase2_deterministic_cascade.csv` when you run `scripts/run_phase2.py`.
+- The one-command workflow writes its authoritative Phase 2 output to `<output_dir>/phase2_deterministic_cascade.csv` and keeps authoritative Phase 1 input at `<output_dir>/monthlyized_output.csv`.
+- Output grain remains `scenario x geography x module x segment x month`.
+
 ## Acceptance Tests
 - Run the business acceptance layer with `python -m pytest tests/test_phase1_acceptance.py`.
+- Run the Phase 2 business acceptance layer with `python -m pytest tests/test_phase2_runner.py tests/test_phase2_acceptance.py`.
 - The acceptance suite validates workbook import reconciliation for all `forecast_grain x forecast_frequency` combinations, authoritative `monthlyized_output.csv` generation, runner consistency against normalized monthly outputs, calendar horizon coverage, output-key uniqueness, actionable validation context, and the current Phase 1 CML prevalent guardrails.
+- The Phase 2 acceptance suite validates the deterministic cascade from accepted `monthlyized_output.csv` into doses, FG, SS, DP, and DS without bypassing the Phase 1 normalized contract, including the approved base-case `0.15 mg` fixed dose, `0.0023 mg/kg x 80 kg` weight-based default, module-specific monthly dosing cadence, `1.0 mg` FG units, and ceiling vialing.
 
 ## CML Prevalent Phase 1 Limitation
 - `CML_Prevalent` remains a separate module.
@@ -59,6 +131,16 @@ This repository contains the Phase 1 scaffold for a spec-driven CBX-250 commerci
 - Fallback generation from workbook assumptions is supported when explicit active-sheet `CML_Prevalent` rows are absent.
 - `exhaustion_rule` is captured and audited, but Phase 1 does not implement a full dynamic depletion or remainder engine.
 - Current Phase 1 behavior relies only on supplied annual totals, `launch_month_index`, `duration_months`, and profile logic. Fuller depletion mechanics are deferred.
+
+## Deferred Beyond Phase 2
+- trade
+- production scheduling
+- inventory
+- financials
+- stochastic manufacturing performance yields
+- Monte Carlo
+- full co-pack logic beyond the preserved `separate_sku_first` hook
+- dynamic CML prevalent depletion and remainder logic
 
 ## Real Scenario 01
 - Raw source workbook: `data/raw/treatable pts 250.xlsx`

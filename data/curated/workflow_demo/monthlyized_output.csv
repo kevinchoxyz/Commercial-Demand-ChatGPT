@@ -1,0 +1,8 @@
+scenario_name,geography_code,module,segment_code,month_index,calendar_month,patients_treated_monthly,source_frequency,source_grain,source_sheet,profile_id_used,notes
+WORKFLOW_DEMO,EU,CML_Prevalent,CML_Prevalent,1,2029-01-01,18,monthly,module_level,ModuleLevel_Forecast,,Example only
+WORKFLOW_DEMO,EU,MDS,HR_MDS,1,2029-01-01,7.2,monthly,module_level,ModuleLevel_Forecast,,Example only; allocated_using_MDS_Mix
+WORKFLOW_DEMO,EU,MDS,LR_MDS,1,2029-01-01,4.8,monthly,module_level,ModuleLevel_Forecast,,Example only; allocated_using_MDS_Mix
+WORKFLOW_DEMO,US,AML,1L_fit,1,2029-01-01,10,monthly,module_level,ModuleLevel_Forecast,,Replace example row; allocated_using_AML_Mix
+WORKFLOW_DEMO,US,AML,1L_unfit,1,2029-01-01,8.75,monthly,module_level,ModuleLevel_Forecast,,Replace example row; allocated_using_AML_Mix
+WORKFLOW_DEMO,US,AML,RR,1,2029-01-01,6.25,monthly,module_level,ModuleLevel_Forecast,,Replace example row; allocated_using_AML_Mix
+WORKFLOW_DEMO,US,CML_Incident,CML_Incident,1,2029-01-01,5,monthly,module_level,ModuleLevel_Forecast,,CML must remain a separate module

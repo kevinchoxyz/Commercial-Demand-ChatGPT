@@ -1,0 +1,5 @@
+geography_code,module,segment_code,month_index,patients_treated
+EU,CML_Incident,CML_Incident,1,3
+EU,CML_Prevalent,CML_Prevalent,1,8
+US,AML,1L_fit,1,11
+US,MDS,HR_MDS,1,6

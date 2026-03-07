@@ -1,0 +1,11 @@
+# APPROVED BASE-CASE PHASE 2 SCENARIO
+# File paths are resolved relative to this file.
+
+scenario_name = "BASE_2029"
+parameter_config = "../parameters/phase2_deterministic_cascade.toml"
+
+[inputs]
+phase1_monthlyized_output = "../../data/curated/base_2029/monthlyized_output.csv"
+
+[outputs]
+deterministic_cascade = "../../data/outputs/base_phase2_deterministic_cascade.csv"

@@ -54,7 +54,7 @@ CML v1 rule:
 10. Board and executive outputs
 
 Current repo implementation boundary:
-- build steps 1 to 3 only
+- build steps 1 to 4
 - keep later steps as placeholders
 
 ## 3. Phase 1-Relevant Parameter Map
@@ -130,6 +130,7 @@ Current repo implementation boundary:
 - input loader framework
 - calendar engine
 - demand-module skeletons for AML, MDS, CML Incident, CML Prevalent
+- deterministic dose and unit cascade consuming normalized monthly patient outputs
 - validation framework
 - unit tests
 - example configs and sample input files

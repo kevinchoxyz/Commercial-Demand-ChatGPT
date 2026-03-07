@@ -1,0 +1,73 @@
+# APPROVED PHASE 2 BASE-CASE CONFIG
+# Prompt v7.1 deterministic dose and packaging assumptions.
+
+[model]
+phase = 2
+build_scope = "deterministic_dose_unit_cascade"
+upstream_demand_contract = "monthlyized_output.csv"
+dose_basis = "fixed"
+co_pack_mode = "separate_sku_first"
+
+[modules]
+enabled = ["AML", "MDS", "CML_Incident", "CML_Prevalent"]
+disabled = ["trade", "production", "inventory", "financials", "monte_carlo"]
+
+[module_settings.AML]
+fixed_dose_mg = 0.15
+weight_based_dose_mg_per_kg = 0.0023
+average_patient_weight_kg = 80.0
+patient_weight_distribution = "PLACEHOLDER_DETERMINISTIC_AVERAGE_ONLY"
+doses_per_patient_per_month = 4.33
+fg_vialing_rule = "ceil_mg_per_unit_no_sharing"
+fg_mg_per_unit = 1.0
+
+[module_settings.MDS]
+fixed_dose_mg = 0.15
+weight_based_dose_mg_per_kg = 0.0023
+average_patient_weight_kg = 80.0
+patient_weight_distribution = "PLACEHOLDER_DETERMINISTIC_AVERAGE_ONLY"
+doses_per_patient_per_month = 4.33
+fg_vialing_rule = "ceil_mg_per_unit_no_sharing"
+fg_mg_per_unit = 1.0
+
+[module_settings.CML_Incident]
+fixed_dose_mg = 0.15
+weight_based_dose_mg_per_kg = 0.0023
+average_patient_weight_kg = 80.0
+patient_weight_distribution = "PLACEHOLDER_DETERMINISTIC_AVERAGE_ONLY"
+doses_per_patient_per_month = 1.0
+fg_vialing_rule = "ceil_mg_per_unit_no_sharing"
+fg_mg_per_unit = 1.0
+
+[module_settings.CML_Prevalent]
+fixed_dose_mg = 0.15
+weight_based_dose_mg_per_kg = 0.0023
+average_patient_weight_kg = 80.0
+patient_weight_distribution = "PLACEHOLDER_DETERMINISTIC_AVERAGE_ONLY"
+doses_per_patient_per_month = 1.0
+fg_vialing_rule = "ceil_mg_per_unit_no_sharing"
+fg_mg_per_unit = 1.0
+
+[step_up]
+enabled = false
+schedule_id = "PLACEHOLDER_INACTIVE"
+
+[dose_reduction]
+enabled = false
+pct = 0.0
+
+[commercial_adjustments]
+adherence_rate = 1.0
+free_goods_pct = 0.0
+
+[yield.plan]
+ds_to_dp = 0.95
+dp_to_fg = 0.98
+fg_pack = 1.0
+ss = 1.0
+
+[ss]
+ratio_to_fg = 1.0
+
+[validation]
+enforce_unique_output_keys = true

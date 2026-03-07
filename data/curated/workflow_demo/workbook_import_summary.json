@@ -1,0 +1,46 @@
+{
+  "workbook_path": "C:\\Users\\KevinCho\\CBX250 Commercial ChatGPT\\templates\\CBX250_Commercial_Forecast_Template.xlsx",
+  "scenario_name": "WORKFLOW_DEMO",
+  "forecast_grain": "module_level",
+  "forecast_frequency": "monthly",
+  "us_aml_mds_initial_approval_date": "2029-01-01",
+  "real_geography_list_confirmed": false,
+  "output_dir": "C:\\Users\\KevinCho\\CBX250 Commercial ChatGPT\\data\\curated\\workflow_demo",
+  "cml_prevalent_primary_source": "explicit_forecast",
+  "row_counts": {
+    "geography_master": 2,
+    "commercial_forecast_module_level": 4,
+    "commercial_forecast_segment_level": 4,
+    "aml_segment_mix": 39,
+    "mds_segment_mix": 26,
+    "inp_cml_prevalent": 33,
+    "monthlyized_output": 7
+  },
+  "monthlyized_output_rows_by_module": {
+    "AML": 3,
+    "CML_Incident": 1,
+    "CML_Prevalent": 1,
+    "MDS": 2
+  },
+  "monthlyized_output_rows_by_segment": {
+    "1L_fit": 1,
+    "1L_unfit": 1,
+    "CML_Incident": 1,
+    "CML_Prevalent": 1,
+    "HR_MDS": 1,
+    "LR_MDS": 1,
+    "RR": 1
+  },
+  "warnings": [
+    "real_geography_list_confirmed is false on the Inputs sheet; review Geography_Master before using this package as a production scenario.",
+    "A segment-level normalized CSV was also written for QA/reference, but module_level remains the active demand contract for this scenario.",
+    "Explicit CML_Prevalent forecast rows remained the primary demand input; CML_Prevalent_Assumptions was still loaded to generate the validation pool.",
+    "Populate inp_epi_crosscheck.csv only if you want epi cross-check coverage for this submission."
+  ],
+  "notes": [
+    "Annual_to_Monthly_Profiles remain editable starter defaults rather than fixed business assumptions.",
+    "CML_Prevalent_Assumptions generates inp_cml_prevalent.csv for validation and can generate fallback CML_Prevalent demand only when explicit forecast rows are absent.",
+    "The importer writes monthlyized_output.csv as the authoritative normalized monthly workbook export in Phase 1; the workbook tab is reserved as a generated/reference placeholder.",
+    "exhaustion_rule is carried as workbook metadata and does not introduce new depletion logic beyond the supplied annual totals, launch_month_index, and duration_months."
+  ]
+}

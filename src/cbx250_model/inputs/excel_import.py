@@ -323,9 +323,13 @@ class WorkbookReader:
 def import_commercial_forecast_workbook(
     workbook_path: Path,
     output_dir: Path | None = None,
+    scenario_name_override: str | None = None,
 ) -> WorkbookImportResult:
     reader = WorkbookReader(workbook_path)
-    context = _load_submission_context(reader)
+    context, allowed_scenario_names = _load_submission_context(
+        reader,
+        scenario_name_override=scenario_name_override,
+    )
     calendar = build_monthly_calendar(context.us_aml_mds_initial_approval_date, PHASE1_HORIZON_MONTHS)
 
     geography_rows = _normalize_geography_master(reader.read_table("Geography_Master", GEOGRAPHY_MASTER_HEADERS))
@@ -343,19 +347,19 @@ def import_commercial_forecast_workbook(
     if context.forecast_frequency == FORECAST_FREQUENCY_MONTHLY:
         monthly_module_rows = _normalize_module_level_forecast(
             reader.read_table("ModuleLevel_Forecast", MODULE_LEVEL_HEADERS),
-            scenario_name=context.scenario_name,
+            allowed_scenario_names=allowed_scenario_names,
             geography_codes=geography_codes,
         )
         monthly_segment_rows = _normalize_segment_level_forecast(
             reader.read_table("SegmentLevel_Forecast", SEGMENT_LEVEL_HEADERS),
-            scenario_name=context.scenario_name,
+            allowed_scenario_names=allowed_scenario_names,
             geography_codes=geography_codes,
         )
     else:
         annual_module_rows = _monthlyize_annual_module_level_forecast(
             _normalize_annual_module_level_forecast(
                 reader.read_table("Annual_ModuleLevel_Forecast", ANNUAL_MODULE_LEVEL_HEADERS),
-                scenario_name=context.scenario_name,
+                allowed_scenario_names=allowed_scenario_names,
                 geography_codes=geography_codes,
             ),
             profiles=profiles,
@@ -364,7 +368,7 @@ def import_commercial_forecast_workbook(
         annual_segment_rows = _monthlyize_annual_segment_level_forecast(
             _normalize_annual_segment_level_forecast(
                 reader.read_table("Annual_SegmentLevel_Forecast", ANNUAL_SEGMENT_LEVEL_HEADERS),
-                scenario_name=context.scenario_name,
+                allowed_scenario_names=allowed_scenario_names,
                 geography_codes=geography_codes,
             ),
             profiles=profiles,
@@ -380,17 +384,17 @@ def import_commercial_forecast_workbook(
 
     aml_mix_rows = _normalize_aml_mix(
         reader.read_table("AML_Mix", AML_MIX_HEADERS),
-        scenario_name=context.scenario_name,
+        allowed_scenario_names=allowed_scenario_names,
         geography_codes=geography_codes,
     )
     mds_mix_rows = _normalize_mds_mix(
         reader.read_table("MDS_Mix", MDS_MIX_HEADERS),
-        scenario_name=context.scenario_name,
+        allowed_scenario_names=allowed_scenario_names,
         geography_codes=geography_codes,
     )
     cml_assumptions = _normalize_cml_prevalent_assumptions(
         reader.read_table("CML_Prevalent_Assumptions", CML_PREVALENT_ASSUMPTION_HEADERS),
-        scenario_name=context.scenario_name,
+        allowed_scenario_names=allowed_scenario_names,
         geography_codes=geography_codes,
         profiles=profiles,
     )
@@ -506,9 +510,17 @@ def import_commercial_forecast_workbook(
     )
 
 
-def _load_submission_context(reader: WorkbookReader) -> WorkbookSubmissionContext:
+def _load_submission_context(
+    reader: WorkbookReader,
+    *,
+    scenario_name_override: str | None = None,
+) -> tuple[WorkbookSubmissionContext, tuple[str, ...]]:
     values = reader.read_sheet_values("Inputs")
-    scenario_name = _require_nonempty_value(values.get(INPUT_SHEET_ROWS["scenario_name"], ""), "scenario_name")
+    workbook_scenario_name = values.get(INPUT_SHEET_ROWS["scenario_name"], "").strip()
+    if scenario_name_override is not None and scenario_name_override.strip():
+        scenario_name = scenario_name_override.strip()
+    else:
+        scenario_name = _require_nonempty_value(workbook_scenario_name, "scenario_name")
     forecast_grain = _require_nonempty_value(values.get(INPUT_SHEET_ROWS["forecast_grain"], ""), "forecast_grain")
     if forecast_grain not in SUPPORTED_FORECAST_GRAINS:
         raise ValueError(
@@ -530,13 +542,17 @@ def _load_submission_context(reader: WorkbookReader) -> WorkbookSubmissionContex
         values.get(INPUT_SHEET_ROWS["real_geography_list_confirmed"], ""),
         "real_geography_list_confirmed",
     )
-    return WorkbookSubmissionContext(
+    context = WorkbookSubmissionContext(
         scenario_name=scenario_name,
         forecast_grain=forecast_grain,
         forecast_frequency=forecast_frequency,
         us_aml_mds_initial_approval_date=approval_date,
         real_geography_list_confirmed=real_geography_list_confirmed,
     )
+    allowed_scenario_names = tuple(
+        dict.fromkeys(name for name in (scenario_name, workbook_scenario_name) if name)
+    )
+    return context, allowed_scenario_names
 
 
 def _normalize_geography_master(rows: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -573,7 +589,7 @@ def _normalize_geography_master(rows: list[dict[str, str]]) -> list[dict[str, st
 def _normalize_module_level_forecast(
     rows: list[dict[str, str]],
     *,
-    scenario_name: str,
+    allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
 ) -> list[ForecastInputRow]:
     normalized_rows: list[ForecastInputRow] = []
@@ -581,7 +597,12 @@ def _normalize_module_level_forecast(
     for row_number, row in enumerate(rows, start=2):
         if _is_blank_row(row, required_fields):
             continue
-        _validate_optional_scenario_name(row, scenario_name, "ModuleLevel_Forecast", row_number)
+        _validate_optional_scenario_name(
+            row,
+            allowed_scenario_names,
+            "ModuleLevel_Forecast",
+            row_number,
+        )
         geography_code = _require_known_geography(row, geography_codes, "ModuleLevel_Forecast", row_number)
         record = ModuleLevelForecastRecord.from_row(
             {
@@ -614,7 +635,7 @@ def _normalize_module_level_forecast(
 def _normalize_segment_level_forecast(
     rows: list[dict[str, str]],
     *,
-    scenario_name: str,
+    allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
 ) -> list[ForecastInputRow]:
     normalized_rows: list[ForecastInputRow] = []
@@ -629,7 +650,12 @@ def _normalize_segment_level_forecast(
     for row_number, row in enumerate(rows, start=2):
         if _is_blank_row(row, required_fields):
             continue
-        _validate_optional_scenario_name(row, scenario_name, "SegmentLevel_Forecast", row_number)
+        _validate_optional_scenario_name(
+            row,
+            allowed_scenario_names,
+            "SegmentLevel_Forecast",
+            row_number,
+        )
         geography_code = _require_known_geography(row, geography_codes, "SegmentLevel_Forecast", row_number)
         module = _require_nonempty_row_value(row, "module", "SegmentLevel_Forecast", row_number)
         segment_code = _translate_segment_code(
@@ -677,7 +703,7 @@ def _normalize_segment_level_forecast(
 def _normalize_annual_module_level_forecast(
     rows: list[dict[str, str]],
     *,
-    scenario_name: str,
+    allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
 ) -> list[AnnualModuleForecastInput]:
     normalized_rows: list[AnnualModuleForecastInput] = []
@@ -692,7 +718,12 @@ def _normalize_annual_module_level_forecast(
     for row_number, row in enumerate(rows, start=2):
         if _is_blank_row(row, required_fields):
             continue
-        _validate_optional_scenario_name(row, scenario_name, "Annual_ModuleLevel_Forecast", row_number)
+        _validate_optional_scenario_name(
+            row,
+            allowed_scenario_names,
+            "Annual_ModuleLevel_Forecast",
+            row_number,
+        )
         geography_code = _require_known_geography(row, geography_codes, "Annual_ModuleLevel_Forecast", row_number)
         module = _require_nonempty_row_value(row, "module", "Annual_ModuleLevel_Forecast", row_number)
         if module not in PHASE1_MODULES:
@@ -740,7 +771,7 @@ def _normalize_annual_module_level_forecast(
 def _normalize_annual_segment_level_forecast(
     rows: list[dict[str, str]],
     *,
-    scenario_name: str,
+    allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
 ) -> list[AnnualSegmentForecastInput]:
     normalized_rows: list[AnnualSegmentForecastInput] = []
@@ -756,7 +787,12 @@ def _normalize_annual_segment_level_forecast(
     for row_number, row in enumerate(rows, start=2):
         if _is_blank_row(row, required_fields):
             continue
-        _validate_optional_scenario_name(row, scenario_name, "Annual_SegmentLevel_Forecast", row_number)
+        _validate_optional_scenario_name(
+            row,
+            allowed_scenario_names,
+            "Annual_SegmentLevel_Forecast",
+            row_number,
+        )
         geography_code = _require_known_geography(row, geography_codes, "Annual_SegmentLevel_Forecast", row_number)
         module = _require_nonempty_row_value(row, "module", "Annual_SegmentLevel_Forecast", row_number)
         segment_code = _translate_segment_code(
@@ -824,12 +860,12 @@ def _normalize_annual_segment_level_forecast(
 def _normalize_aml_mix(
     rows: list[dict[str, str]],
     *,
-    scenario_name: str,
+    allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
 ) -> list[dict[str, str]]:
     return _normalize_mix_sheet(
         rows=rows,
-        scenario_name=scenario_name,
+        allowed_scenario_names=allowed_scenario_names,
         geography_codes=geography_codes,
         sheet_name="AML_Mix",
         module="AML",
@@ -844,12 +880,12 @@ def _normalize_aml_mix(
 def _normalize_mds_mix(
     rows: list[dict[str, str]],
     *,
-    scenario_name: str,
+    allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
 ) -> list[dict[str, str]]:
     return _normalize_mix_sheet(
         rows=rows,
-        scenario_name=scenario_name,
+        allowed_scenario_names=allowed_scenario_names,
         geography_codes=geography_codes,
         sheet_name="MDS_Mix",
         module="MDS",
@@ -863,7 +899,7 @@ def _normalize_mds_mix(
 def _normalize_mix_sheet(
     *,
     rows: list[dict[str, str]],
-    scenario_name: str,
+    allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
     sheet_name: str,
     module: str,
@@ -874,7 +910,12 @@ def _normalize_mix_sheet(
     for row_number, row in enumerate(rows, start=2):
         if _is_blank_row(row, required_fields):
             continue
-        _validate_optional_scenario_name(row, scenario_name, sheet_name, row_number)
+        _validate_optional_scenario_name(
+            row,
+            allowed_scenario_names,
+            sheet_name,
+            row_number,
+        )
         geography_code = _require_known_geography(row, geography_codes, sheet_name, row_number)
         month_index = _require_nonempty_row_value(row, "month_index", sheet_name, row_number)
         for segment_code, column_name in share_columns:
@@ -969,7 +1010,7 @@ def _normalize_monthlyization_profiles(
 def _normalize_cml_prevalent_assumptions(
     rows: list[dict[str, str]],
     *,
-    scenario_name: str,
+    allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
     profiles: dict[str, AnnualMonthlyizationProfile],
 ) -> list[CMLPrevalentAssumption]:
@@ -987,7 +1028,12 @@ def _normalize_cml_prevalent_assumptions(
     for row_number, row in enumerate(rows, start=2):
         if _is_blank_row(row, required_fields):
             continue
-        _validate_optional_scenario_name(row, scenario_name, "CML_Prevalent_Assumptions", row_number)
+        _validate_optional_scenario_name(
+            row,
+            allowed_scenario_names,
+            "CML_Prevalent_Assumptions",
+            row_number,
+        )
         geography_code = _require_known_geography(row, geography_codes, "CML_Prevalent_Assumptions", row_number)
         profile_id = _require_nonempty_row_value(
             row,
@@ -1652,15 +1698,20 @@ def _is_blank_row(row: dict[str, str], keys: tuple[str, ...]) -> bool:
 
 def _validate_optional_scenario_name(
     row: dict[str, str],
-    expected_scenario_name: str,
+    allowed_scenario_names: tuple[str, ...],
     sheet_name: str,
     row_number: int,
 ) -> None:
     provided = row.get("scenario_name", "").strip()
-    if provided and provided != expected_scenario_name:
-        raise ValueError(
-            f"{sheet_name} row {row_number} has scenario_name {provided!r}, expected {expected_scenario_name!r}."
-        )
+    if not provided or provided in allowed_scenario_names:
+        return
+    if len(allowed_scenario_names) == 1:
+        expected_message = repr(allowed_scenario_names[0])
+    else:
+        expected_message = f"one of {allowed_scenario_names!r}"
+    raise ValueError(
+        f"{sheet_name} row {row_number} has scenario_name {provided!r}, expected {expected_message}."
+    )
 
 
 def _require_nonempty_value(value: str, field_name: str) -> str:
