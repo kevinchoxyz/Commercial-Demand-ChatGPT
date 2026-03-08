@@ -30,6 +30,8 @@ def build_phase2_outputs(
             "plan_ds_to_dp_yield": config.plan_yield.ds_to_dp,
             "plan_dp_to_fg_yield": config.plan_yield.dp_to_fg,
             "plan_ss_yield": config.plan_yield.ss,
+            "ds_qty_per_dp_unit_mg": config.ds.qty_per_dp_unit_mg,
+            "ds_overage_factor": config.ds.overage_factor,
         },
         sort_keys=True,
     )
@@ -98,7 +100,12 @@ def _cascade_from_dose_level(
     fg_units_required = fg_units_before_pack_yield * (1.0 + config.commercial_adjustments.free_goods_pct)
     ss_units_required = fg_units_required * config.ss.ratio_to_fg
     dp_units_required = fg_units_required / config.plan_yield.dp_to_fg
-    ds_required = dp_units_required / config.plan_yield.ds_to_dp
+    ds_required = (
+        dp_units_required
+        * config.ds.qty_per_dp_unit_mg
+        / config.plan_yield.ds_to_dp
+        * (1.0 + config.ds.overage_factor)
+    )
     return CascadeCalculation(
         fg_units_before_pack_yield=fg_units_before_pack_yield,
         fg_units_required=fg_units_required,

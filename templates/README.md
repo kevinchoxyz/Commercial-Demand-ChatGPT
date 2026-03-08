@@ -15,11 +15,19 @@ Use annual entry when Commercial only has year buckets:
 
 `Annual_to_Monthly_Profiles` controls annual-to-monthly conversion. The starter profiles are editable defaults, not fixed business assumptions. The importer renormalizes Year 1 if launch starts after January, so pre-launch months go to zero and the remaining in-year weights sum to 100%.
 
+For `AML_Mix` and `MDS_Mix`:
+- standard annual `module_level` entry can be one row per `scenario_name x geography_code x year_index`
+- optional monthly overrides can be entered with `month_index`
+- when both exist, `month_index` rows take precedence for that geography/month
+- if only year-level rows exist, the importer expands them uniformly across the monthlyized months of that year
+- users do not need to populate every month unless within-year mix differs
+
 Always keep CML as separate modules `CML_Incident` and `CML_Prevalent`. On `SegmentLevel_Forecast` and `Annual_SegmentLevel_Forecast`, use `segment_code = ALL` for CML submissions.
 
-`CML_Prevalent_Assumptions` is always loaded:
-- It generates `inp_cml_prevalent.csv` for addressable pool validation.
+`CML_Prevalent_Assumptions` is optional for explicit demand import:
 - If explicit `CML_Prevalent` forecast rows exist in the active forecast sheet, those remain the primary demand input.
+- If usable assumptions are also provided, they generate `inp_cml_prevalent.csv` for addressable pool validation.
+- If explicit `CML_Prevalent` forecast rows exist and usable assumptions are missing, the importer continues with a warning and writes a header-only `inp_cml_prevalent.csv`.
 - If explicit `CML_Prevalent` forecast rows are missing, the importer can generate fallback monthly demand from `fallback_patients_treated_annual` plus the selected profile.
 - `exhaustion_rule` is captured and audited, but Phase 1 does not implement a full dynamic depletion or remainder engine. Current behavior relies only on supplied annual totals, `launch_month_index`, `duration_months`, and profile logic.
 
@@ -49,4 +57,4 @@ Generated / audit sheet:
 Authoritative Phase 1 workbook-import outputs:
 - `monthlyized_output.csv` is the authoritative normalized monthly workbook export.
 - `commercial_forecast_module_level.csv` or `commercial_forecast_segment_level.csv` remain the lower-level normalized contract inputs used by the current Phase 1 runner, depending on `forecast_grain`.
-- `inp_cml_prevalent.csv` is the authoritative CML prevalent validation-pool file generated from the workbook assumptions.
+- `inp_cml_prevalent.csv` is the CML prevalent validation-pool file generated from workbook assumptions when usable assumptions are provided; otherwise it is written as header-only.

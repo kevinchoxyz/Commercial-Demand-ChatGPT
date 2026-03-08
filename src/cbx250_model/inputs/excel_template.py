@@ -150,7 +150,18 @@ def _build_instructions_sheet() -> SheetSpec:
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "AML and MDS are allocated to segments after monthlyization. CML modules stay separate and do not use AML/MDS mix logic.",
+                "AML and MDS are allocated to segments after monthlyization. For annual module_level submissions, AML_Mix and MDS_Mix can be entered once per geography + year_index; the importer expands that year-level mix across the monthlyized months of the year.",
+                WRAP_STYLE_ID,
+            ),
+        ),
+        (
+            CellSpec("Mix override rule", LABEL_STYLE_ID),
+            CellSpec(
+                "Use month_index mix rows only when the within-year segment mix differs from the standard annual mix.",
+                WRAP_STYLE_ID,
+            ),
+            CellSpec(
+                "If both are present, month_index rows override year_index rows for the same geography and month. CML modules stay separate and do not use AML/MDS mix logic.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -172,18 +183,18 @@ def _build_instructions_sheet() -> SheetSpec:
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "Always complete CML_Prevalent_Assumptions for validation pool generation. If explicit CML_Prevalent rows are missing, the assumptions sheet can generate a fallback monthly series.",
+                "CML_Prevalent_Assumptions is optional for explicit demand import. If provided, it generates the validation pool; if explicit CML_Prevalent rows are missing, the assumptions sheet can generate a fallback monthly series.",
                 WRAP_STYLE_ID,
             ),
         ),
         (
-            CellSpec("CML_Prevalent fallback", LABEL_STYLE_ID),
+            CellSpec("CML_Prevalent validation", LABEL_STYLE_ID),
             CellSpec(
-                "If you need fallback generation, populate fallback_patients_treated_annual on CML_Prevalent_Assumptions.",
+                "If you omit usable CML_Prevalent_Assumptions rows while explicit CML_Prevalent forecast rows are present, the importer continues with a warning and writes a header-only inp_cml_prevalent.csv file.",
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "This is a clearly labeled workbook input used only when explicit CML_Prevalent forecast rows are absent from the active forecast sheet.",
+                "If you need fallback generation, populate fallback_patients_treated_annual on CML_Prevalent_Assumptions. That fallback path is used only when explicit CML_Prevalent forecast rows are absent from the active forecast sheet.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -659,6 +670,7 @@ def _build_aml_mix_sheet() -> SheetSpec:
     headers = (
         "scenario_name",
         "geography_code",
+        "year_index",
         "month_index",
         "1L_fit_share",
         "1L_unfit_share",
@@ -667,43 +679,46 @@ def _build_aml_mix_sheet() -> SheetSpec:
         "status",
     )
     rows: list[tuple[CellSpec, ...]] = [_header_row(headers)]
-    example_values: dict[int, tuple[str, int, float, float, float]] = {}
-    for offset, month_index in enumerate(range(1, 13), start=2):
-        example_values[offset] = ("US", month_index, 0.40, 0.35, 0.25)
-    example_values[14] = ("EU", 1, 0.45, 0.30, 0.25)
+    example_values: dict[int, tuple[str, int | str, int | str, float | str, float | str, float | str]] = {
+        2: ("US", 1, "", 0.40, 0.35, 0.25),
+        3: ("EU", 1, "", 0.45, 0.30, 0.25),
+        4: ("US", "", 2, 0.50, 0.20, 0.30),
+    }
     for row_number in range(2, MIX_TEMPLATE_ROWS + 2):
-        geography_code, month_index, fit_share, unfit_share, rr_share = example_values.get(
+        geography_code, year_index, month_index, fit_share, unfit_share, rr_share = example_values.get(
             row_number,
-            ("", "", "", "", ""),
+            ("", "", "", "", "", ""),
         )
         rows.append(
             (
                 CellSpec(style_id=CALCULATED_STYLE_ID, formula="Inputs!$B$2"),
                 CellSpec(geography_code, EDITABLE_STYLE_ID),
+                CellSpec(year_index, EDITABLE_STYLE_ID) if year_index != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(month_index, EDITABLE_STYLE_ID) if month_index != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(fit_share, EDITABLE_STYLE_ID) if fit_share != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(unfit_share, EDITABLE_STYLE_ID) if unfit_share != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(rr_share, EDITABLE_STYLE_ID) if rr_share != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(
                     style_id=CALCULATED_DECIMAL_STYLE_ID,
-                    formula=f'IF(COUNTA(A{row_number}:F{row_number})=0,"",ROUND(D{row_number}+E{row_number}+F{row_number},6))',
+                    formula=f'IF(COUNTA(A{row_number}:G{row_number})=0,"",ROUND(E{row_number}+F{row_number}+G{row_number},6))',
                 ),
                 CellSpec(
                     style_id=CALCULATED_STYLE_ID,
-                    formula=f'IF(G{row_number}="","",IF(ABS(G{row_number}-1)<=0.000001,"OK","CHECK"))',
+                    formula=f'IF(H{row_number}="","",IF(ABS(H{row_number}-1)<=0.000001,"OK","CHECK"))',
                 ),
             )
         )
     return SheetSpec(
         name="AML_Mix",
         rows=tuple(rows),
-        column_widths=(18, 18, 14, 14, 16, 14, 12, 12),
+        column_widths=(18, 18, 14, 14, 14, 16, 14, 12, 12),
         freeze_cell="A2",
-        auto_filter_ref="A1:H1",
+        auto_filter_ref="A1:I1",
         data_validations=(
             DataValidationSpec(f"B2:B{MIX_TEMPLATE_ROWS + 1}", "list", "Geography_Master!$A$2:$A$101"),
-            DataValidationSpec(f"C2:C{MIX_TEMPLATE_ROWS + 1}", "whole", "1", "240", operator="between"),
-            DataValidationSpec(f"D2:F{MIX_TEMPLATE_ROWS + 1}", "decimal", "0", "1", operator="between"),
+            DataValidationSpec(f"C2:C{MIX_TEMPLATE_ROWS + 1}", "whole", "1", "25", operator="between"),
+            DataValidationSpec(f"D2:D{MIX_TEMPLATE_ROWS + 1}", "whole", "1", "240", operator="between"),
+            DataValidationSpec(f"E2:G{MIX_TEMPLATE_ROWS + 1}", "decimal", "0", "1", operator="between"),
         ),
     )
 
@@ -712,6 +727,7 @@ def _build_mds_mix_sheet() -> SheetSpec:
     headers = (
         "scenario_name",
         "geography_code",
+        "year_index",
         "month_index",
         "HR_MDS_share",
         "LR_MDS_share",
@@ -719,43 +735,45 @@ def _build_mds_mix_sheet() -> SheetSpec:
         "status",
     )
     rows: list[tuple[CellSpec, ...]] = [_header_row(headers)]
-    example_values: dict[int, tuple[str, int, float, float]] = {
-        2: ("EU", 1, 0.60, 0.40),
+    example_values: dict[int, tuple[str, int | str, int | str, float | str, float | str]] = {
+        2: ("EU", 1, "", 0.60, 0.40),
+        3: ("EU", 2, "", 0.55, 0.45),
+        4: ("EU", "", 14, 0.65, 0.35),
     }
-    for offset, month_index in enumerate(range(13, 25), start=3):
-        example_values[offset] = ("EU", month_index, 0.60, 0.40)
     for row_number in range(2, MIX_TEMPLATE_ROWS + 2):
-        geography_code, month_index, hr_share, lr_share = example_values.get(
+        geography_code, year_index, month_index, hr_share, lr_share = example_values.get(
             row_number,
-            ("", "", "", ""),
+            ("", "", "", "", ""),
         )
         rows.append(
             (
                 CellSpec(style_id=CALCULATED_STYLE_ID, formula="Inputs!$B$2"),
                 CellSpec(geography_code, EDITABLE_STYLE_ID),
+                CellSpec(year_index, EDITABLE_STYLE_ID) if year_index != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(month_index, EDITABLE_STYLE_ID) if month_index != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(hr_share, EDITABLE_STYLE_ID) if hr_share != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(lr_share, EDITABLE_STYLE_ID) if lr_share != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(
                     style_id=CALCULATED_DECIMAL_STYLE_ID,
-                    formula=f'IF(COUNTA(A{row_number}:E{row_number})=0,"",ROUND(D{row_number}+E{row_number},6))',
+                    formula=f'IF(COUNTA(A{row_number}:F{row_number})=0,"",ROUND(E{row_number}+F{row_number},6))',
                 ),
                 CellSpec(
                     style_id=CALCULATED_STYLE_ID,
-                    formula=f'IF(F{row_number}="","",IF(ABS(F{row_number}-1)<=0.000001,"OK","CHECK"))',
+                    formula=f'IF(G{row_number}="","",IF(ABS(G{row_number}-1)<=0.000001,"OK","CHECK"))',
                 ),
             )
         )
     return SheetSpec(
         name="MDS_Mix",
         rows=tuple(rows),
-        column_widths=(18, 18, 14, 16, 16, 12, 12),
+        column_widths=(18, 18, 14, 14, 16, 16, 12, 12),
         freeze_cell="A2",
-        auto_filter_ref="A1:G1",
+        auto_filter_ref="A1:H1",
         data_validations=(
             DataValidationSpec(f"B2:B{MIX_TEMPLATE_ROWS + 1}", "list", "Geography_Master!$A$2:$A$101"),
-            DataValidationSpec(f"C2:C{MIX_TEMPLATE_ROWS + 1}", "whole", "1", "240", operator="between"),
-            DataValidationSpec(f"D2:E{MIX_TEMPLATE_ROWS + 1}", "decimal", "0", "1", operator="between"),
+            DataValidationSpec(f"C2:C{MIX_TEMPLATE_ROWS + 1}", "whole", "1", "25", operator="between"),
+            DataValidationSpec(f"D2:D{MIX_TEMPLATE_ROWS + 1}", "whole", "1", "240", operator="between"),
+            DataValidationSpec(f"E2:F{MIX_TEMPLATE_ROWS + 1}", "decimal", "0", "1", operator="between"),
         ),
     )
 

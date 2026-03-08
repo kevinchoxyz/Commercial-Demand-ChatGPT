@@ -22,6 +22,9 @@ def build_phase2_run_summary(result: "Phase2RunResult", output_path: str | None 
         "total_ss_units_required": sum(row.ss_units_required for row in result.outputs),
         "total_dp_units_required": sum(row.dp_units_required for row in result.outputs),
         "total_ds_required": sum(row.ds_required for row in result.outputs),
+        "total_ds_required_mg": sum(row.ds_required_mg for row in result.outputs),
+        "total_ds_required_g": sum(row.ds_required_g for row in result.outputs),
+        "total_ds_required_kg": sum(row.ds_required_kg for row in result.outputs),
         "validation_issue_count": len(result.validation.issues),
         "authoritative_output_file": output_path,
     }

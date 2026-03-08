@@ -31,7 +31,7 @@ def test_phase2_acceptance_runs_from_authoritative_phase1_monthlyized_output(tmp
         scenario_name=import_result.context.scenario_name,
         phase1_monthlyized_output_path=import_result.file_paths["monthlyized_output"],
         dose_basis="fixed",
-        ds_to_dp_yield=0.95,
+        ds_to_dp_yield=0.90,
         dp_to_fg_yield=0.98,
         fg_pack_yield=1.0,
         ss_yield=1.0,
@@ -53,6 +53,9 @@ def test_phase2_acceptance_runs_from_authoritative_phase1_monthlyized_output(tmp
     assert {row["dose_basis_used"] for row in phase2_rows} == {"fixed"}
     assert {row["fg_vialing_rule_used"] for row in phase2_rows} == {"ceil_mg_per_unit_no_sharing"}
     assert all(float(row["fg_mg_per_unit_used"]) == pytest.approx(1.0) for row in phase2_rows)
+    assert all(float(row["ds_required_mg"]) == pytest.approx(float(row["ds_required"])) for row in phase2_rows)
+    assert all(float(row["ds_required_g"]) == pytest.approx(float(row["ds_required_mg"]) / 1000.0) for row in phase2_rows)
+    assert all(float(row["ds_required_kg"]) == pytest.approx(float(row["ds_required_mg"]) / 1_000_000.0) for row in phase2_rows)
     assert output_path.name == "phase2_deterministic_cascade.csv"
 
 
@@ -79,3 +82,6 @@ def test_phase2_acceptance_checked_in_base_config_uses_approved_module_defaults(
     )
     assert config.get_module_settings("AML").fg_mg_per_unit == pytest.approx(1.0)
     assert config.get_module_settings("AML").fg_vialing_rule == "ceil_mg_per_unit_no_sharing"
+    assert config.plan_yield.ds_to_dp == pytest.approx(0.90)
+    assert config.ds.qty_per_dp_unit_mg == pytest.approx(1.0)
+    assert config.ds.overage_factor == pytest.approx(0.05)

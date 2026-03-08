@@ -61,10 +61,14 @@ adherence_rate = 1.0
 free_goods_pct = 0.0
 
 [yield.plan]
-ds_to_dp = 0.95
+ds_to_dp = 0.90
 dp_to_fg = 0.98
 fg_pack = 1.0
 ss = 1.0
+
+[ds]
+qty_per_dp_unit_mg = 1.0
+overage_factor = 0.05
 
 [ss]
 ratio_to_fg = 1.0

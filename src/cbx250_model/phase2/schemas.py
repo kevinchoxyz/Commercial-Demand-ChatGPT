@@ -142,6 +142,18 @@ class Phase2CascadeRecord:
             self.month_index,
         )
 
+    @property
+    def ds_required_mg(self) -> float:
+        return self.ds_required
+
+    @property
+    def ds_required_g(self) -> float:
+        return self.ds_required_mg / 1000.0
+
+    @property
+    def ds_required_kg(self) -> float:
+        return self.ds_required_mg / 1_000_000.0
+
     def as_csv_row(self) -> dict[str, str]:
         return {
             "scenario_name": self.scenario_name,
@@ -160,6 +172,9 @@ class Phase2CascadeRecord:
             "ss_units_required": _format_numeric(self.ss_units_required),
             "dp_units_required": _format_numeric(self.dp_units_required),
             "ds_required": _format_numeric(self.ds_required),
+            "ds_required_mg": _format_numeric(self.ds_required_mg),
+            "ds_required_g": _format_numeric(self.ds_required_g),
+            "ds_required_kg": _format_numeric(self.ds_required_kg),
             "dose_basis_used": self.dose_basis_used,
             "dose_reduction_applied": json.dumps(self.dose_reduction_applied),
             "dose_reduction_pct": _format_numeric(self.dose_reduction_pct),

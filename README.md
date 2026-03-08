@@ -49,13 +49,14 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
   - when to use monthly vs annual entry
   - when to use `module_level` vs `segment_level`
   - how annual-to-monthly monthlyization works
-  - how `CML_Prevalent_Assumptions` feeds `inp_cml_prevalent.csv` and fallback demand
+  - how `AML_Mix` and `MDS_Mix` can be entered by `year_index` for annual `module_level` submissions, with optional `month_index` overrides taking precedence
+  - how `CML_Prevalent_Assumptions` optionally feeds `inp_cml_prevalent.csv` for validation and can generate fallback demand when explicit CML prevalent forecast rows are absent
   - which sheets are user-entry vs generated
 
 ## Workbook Import Outputs
 - `data/curated/<scenario_name>/monthlyized_output.csv` is the authoritative normalized monthly workbook export for Phase 1.
 - `data/curated/<scenario_name>/commercial_forecast_module_level.csv` or `data/curated/<scenario_name>/commercial_forecast_segment_level.csv` remain the lower-level normalized contract inputs consumed by the current Phase 1 runner, depending on `forecast_grain`.
-- `data/curated/<scenario_name>/inp_cml_prevalent.csv` is the authoritative CML prevalent validation-pool file generated from workbook assumptions.
+- `data/curated/<scenario_name>/inp_cml_prevalent.csv` is the CML prevalent validation-pool file generated from workbook assumptions when usable assumptions are provided; otherwise it is written as header-only and the importer warns that no pool validation was generated.
 - The workbook tab `Monthlyized_Output` is a generated/reference placeholder in Phase 1 unless future exporter logic explicitly writes rows back into the workbook.
 
 ## One-Command Workflow
@@ -87,7 +88,10 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
   - `total_fg_units_required`
   - `total_ss_units_required`
   - `total_dp_units_required`
-  - `total_ds_required`
+  - `total_ds_required` (backward-compatible mg total)
+  - `total_ds_required_mg`
+  - `total_ds_required_g`
+  - `total_ds_required_kg`
   - `validation_issue_count`
   - authoritative Phase 1 and Phase 2 output paths
 
@@ -103,11 +107,20 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
   - `CML_Incident` and `CML_Prevalent` dosing cadence = `1.00 dose/month` (`Q4W`)
   - `fg_mg_per_unit = 1.0 mg`
   - `fg_vialing_rule = "ceil_mg_per_unit_no_sharing"` which implements dose-level vialing: `ceil(mg_per_dose_after_reduction / fg_mg_per_unit) * doses_required`
+- `ds.qty_per_dp_unit_mg = 1.0`
+- `yield.plan.ds_to_dp = 0.90`
+- `ds.overage_factor = 0.05`
+- Under the current approved Phase 2 base case, DS is calculated and exported on an mg basis using: `ds_required_mg = dp_units_required * ds.qty_per_dp_unit_mg / yield.plan.ds_to_dp * (1 + ds.overage_factor)`. The cascade CSV now includes `ds_required_mg`, `ds_required_g`, and `ds_required_kg`; retained `ds_required` is the backward-compatible mg field.
 - Step-up configuration is wired but inactive by default. Enabling it currently raises a clearly labeled `PLACEHOLDER` error instead of silently inventing logic.
 - Dose reductions are applied to mg first, then FG/SS/DP/DS are recalculated from the reduced patient-dose vial requirement.
 - `CML_Incident` and `CML_Prevalent` remain separate modules through the full cascade.
 - SS demand is derived in parallel from FG vial demand through `ss.ratio_to_fg`.
 - Active deterministic planning yields are `yield.plan.ds_to_dp` and `yield.plan.dp_to_fg`.
+- The current deterministic DS conversion uses:
+  - `dp_units_required`
+  - `ds.qty_per_dp_unit_mg`
+  - `yield.plan.ds_to_dp`
+  - `ds.overage_factor`
 - `yield.plan.ss` remains in config as a preserved future hook and is not currently applied to the Phase 2 SS parallel demand calculation.
 - `yield.plan.fg_pack` remains fixed at `1.0` as a preserved future hook and is not used to override the approved vial round-up rule in the current base case.
 
@@ -118,6 +131,11 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 - The sample output path is `data/outputs/base_phase2_deterministic_cascade.csv` when you run `scripts/run_phase2.py`.
 - The one-command workflow writes its authoritative Phase 2 output to `<output_dir>/phase2_deterministic_cascade.csv` and keeps authoritative Phase 1 input at `<output_dir>/monthlyized_output.csv`.
 - Output grain remains `scenario x geography x module x segment x month`.
+- DS columns in the Phase 2 CSV are:
+  - `ds_required` = backward-compatible mg field
+  - `ds_required_mg` = explicit mg value
+  - `ds_required_g` = `ds_required_mg / 1000`
+  - `ds_required_kg` = `ds_required_mg / 1000000`
 
 ## Acceptance Tests
 - Run the business acceptance layer with `python -m pytest tests/test_phase1_acceptance.py`.

@@ -25,7 +25,7 @@ from ..constants import (
     SUPPORTED_FORECAST_FREQUENCIES,
     SUPPORTED_FORECAST_GRAINS,
 )
-from .schemas import CMLPrevalentPoolRecord, ModuleLevelForecastRecord, SegmentLevelForecastRecord, SegmentMixRecord
+from .schemas import CMLPrevalentPoolRecord, ModuleLevelForecastRecord, SegmentLevelForecastRecord
 
 XML_NS = {
     "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
@@ -84,6 +84,7 @@ GEOGRAPHY_MASTER_HEADERS = (
 AML_MIX_HEADERS = (
     "scenario_name",
     "geography_code",
+    "year_index",
     "month_index",
     "1L_fit_share",
     "1L_unfit_share",
@@ -94,6 +95,7 @@ AML_MIX_HEADERS = (
 MDS_MIX_HEADERS = (
     "scenario_name",
     "geography_code",
+    "year_index",
     "month_index",
     "HR_MDS_share",
     "LR_MDS_share",
@@ -386,11 +388,13 @@ def import_commercial_forecast_workbook(
         reader.read_table("AML_Mix", AML_MIX_HEADERS),
         allowed_scenario_names=allowed_scenario_names,
         geography_codes=geography_codes,
+        approval_date=context.us_aml_mds_initial_approval_date,
     )
     mds_mix_rows = _normalize_mds_mix(
         reader.read_table("MDS_Mix", MDS_MIX_HEADERS),
         allowed_scenario_names=allowed_scenario_names,
         geography_codes=geography_codes,
+        approval_date=context.us_aml_mds_initial_approval_date,
     )
     cml_assumptions = _normalize_cml_prevalent_assumptions(
         reader.read_table("CML_Prevalent_Assumptions", CML_PREVALENT_ASSUMPTION_HEADERS),
@@ -423,10 +427,6 @@ def import_commercial_forecast_workbook(
         module_rows=module_rows,
         segment_rows=segment_rows,
     )
-    if explicit_cml_prevalent_present and not cml_pool_rows:
-        raise ValueError(
-            "Explicit CML_Prevalent forecast rows were provided, but CML_Prevalent_Assumptions does not produce any validation pool rows."
-        )
 
     cml_prevalent_primary_source = "none"
     if explicit_cml_prevalent_present:
@@ -446,9 +446,19 @@ def import_commercial_forecast_workbook(
     segment_rows = _sort_forecast_rows(segment_rows)
 
     if context.forecast_grain == FORECAST_GRAIN_MODULE_LEVEL and any(row.module == "AML" for row in module_rows):
-        _validate_required_mix_rows(module_rows=module_rows, mix_rows=aml_mix_rows, module="AML")
+        _validate_required_mix_rows(
+            module_rows=module_rows,
+            mix_rows=aml_mix_rows,
+            module="AML",
+            approval_date=context.us_aml_mds_initial_approval_date,
+        )
     if context.forecast_grain == FORECAST_GRAIN_MODULE_LEVEL and any(row.module == "MDS" for row in module_rows):
-        _validate_required_mix_rows(module_rows=module_rows, mix_rows=mds_mix_rows, module="MDS")
+        _validate_required_mix_rows(
+            module_rows=module_rows,
+            mix_rows=mds_mix_rows,
+            module="MDS",
+            approval_date=context.us_aml_mds_initial_approval_date,
+        )
 
     monthlyized_output_rows = _build_monthlyized_output_rows(
         context=context,
@@ -862,11 +872,13 @@ def _normalize_aml_mix(
     *,
     allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
+    approval_date: date,
 ) -> list[dict[str, str]]:
     return _normalize_mix_sheet(
         rows=rows,
         allowed_scenario_names=allowed_scenario_names,
         geography_codes=geography_codes,
+        approval_date=approval_date,
         sheet_name="AML_Mix",
         module="AML",
         share_columns=(
@@ -882,11 +894,13 @@ def _normalize_mds_mix(
     *,
     allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
+    approval_date: date,
 ) -> list[dict[str, str]]:
     return _normalize_mix_sheet(
         rows=rows,
         allowed_scenario_names=allowed_scenario_names,
         geography_codes=geography_codes,
+        approval_date=approval_date,
         sheet_name="MDS_Mix",
         module="MDS",
         share_columns=(
@@ -901,12 +915,14 @@ def _normalize_mix_sheet(
     rows: list[dict[str, str]],
     allowed_scenario_names: tuple[str, ...],
     geography_codes: set[str],
+    approval_date: date,
     sheet_name: str,
     module: str,
     share_columns: tuple[tuple[str, str], ...],
 ) -> list[dict[str, str]]:
-    normalized_rows: list[dict[str, str]] = []
-    required_fields = ("geography_code", "month_index", *(column for _, column in share_columns))
+    required_fields = ("geography_code", "year_index", "month_index", *(column for _, column in share_columns))
+    annual_rows: dict[tuple[str, int], tuple[tuple[str, float], ...]] = {}
+    monthly_rows: dict[tuple[str, int], tuple[tuple[str, float], ...]] = {}
     for row_number, row in enumerate(rows, start=2):
         if _is_blank_row(row, required_fields):
             continue
@@ -917,25 +933,80 @@ def _normalize_mix_sheet(
             row_number,
         )
         geography_code = _require_known_geography(row, geography_codes, sheet_name, row_number)
-        month_index = _require_nonempty_row_value(row, "month_index", sheet_name, row_number)
-        for segment_code, column_name in share_columns:
-            record = SegmentMixRecord.from_row(
-                {
-                    "geography_code": geography_code,
-                    "month_index": month_index,
-                    "segment_code": segment_code,
-                    "segment_share": _require_nonempty_row_value(
-                        row, column_name, sheet_name, row_number
-                    ),
-                },
-                module=module,
+        year_value = row.get("year_index", "").strip()
+        month_value = row.get("month_index", "").strip()
+        if not year_value and not month_value:
+            raise ValueError(
+                f"{sheet_name} row {row_number} must provide either year_index for annual default mix "
+                "or month_index for a monthly override."
             )
+        if year_value and month_value:
+            raise ValueError(
+                f"{sheet_name} row {row_number} must provide either year_index or month_index, not both."
+            )
+
+        segment_shares = tuple(
+            (
+                segment_code,
+                _parse_nonnegative_float(
+                    _require_nonempty_row_value(row, column_name, sheet_name, row_number),
+                    column_name,
+                    sheet_name,
+                    row_number,
+                ),
+            )
+            for segment_code, column_name in share_columns
+        )
+        share_total = sum(segment_share for _, segment_share in segment_shares)
+        if abs(share_total - 1.0) > 1e-6:
+            raise ValueError(
+                f"{sheet_name} row {row_number} shares must sum to 1.0, received {share_total}."
+            )
+
+        if month_value:
+            month_index = _parse_positive_int(month_value, "month_index", sheet_name, row_number)
+            if month_index > PHASE1_HORIZON_MONTHS:
+                raise ValueError(
+                    f"{sheet_name} row {row_number} has month_index {month_index}, which exceeds the "
+                    f"{PHASE1_HORIZON_MONTHS}-month horizon."
+                )
+            key = (geography_code, month_index)
+            if key in monthly_rows:
+                raise ValueError(
+                    f"{sheet_name} row {row_number} duplicates monthly mix for geography_code={geography_code!r}, "
+                    f"month_index={month_index}."
+                )
+            monthly_rows[key] = segment_shares
+            continue
+
+        year_index = _parse_positive_int(year_value, "year_index", sheet_name, row_number)
+        if year_index > 25:
+            raise ValueError(f"{sheet_name} row {row_number} has unsupported year_index {year_index}; max is 25.")
+        key = (geography_code, year_index)
+        if key in annual_rows:
+            raise ValueError(
+                f"{sheet_name} row {row_number} duplicates annual mix for geography_code={geography_code!r}, "
+                f"year_index={year_index}."
+            )
+        annual_rows[key] = segment_shares
+
+    effective_rows: dict[tuple[str, int], tuple[tuple[str, float], ...]] = {}
+    for (geography_code, year_index), segment_shares in annual_rows.items():
+        for month_index in _expand_year_index_to_month_indices(year_index, approval_date):
+            effective_rows[(geography_code, month_index)] = segment_shares
+    for key, segment_shares in monthly_rows.items():
+        effective_rows[key] = segment_shares
+
+    normalized_rows: list[dict[str, str]] = []
+    ordered_keys = sorted(effective_rows)
+    for geography_code, month_index in ordered_keys:
+        for segment_code, segment_share in effective_rows[(geography_code, month_index)]:
             normalized_rows.append(
                 {
-                    "geography_code": record.geography_code,
-                    "month_index": str(record.month_index),
-                    "segment_code": record.segment_code,
-                    "segment_share": _format_numeric(record.segment_share),
+                    "geography_code": geography_code,
+                    "month_index": str(month_index),
+                    "segment_code": segment_code,
+                    "segment_share": _format_numeric(segment_share),
                 }
             )
     return normalized_rows
@@ -1308,6 +1379,21 @@ def _distribute_annual_value(
     ]
 
 
+def _expand_year_index_to_month_indices(year_index: int, approval_date: date) -> tuple[int, ...]:
+    approval_month_offset = approval_date.month - 1
+    month_indices: list[int] = []
+    for month_number in range(1, 13):
+        month_index = ((year_index - 1) * 12) + month_number - approval_month_offset
+        if 1 <= month_index <= PHASE1_HORIZON_MONTHS:
+            month_indices.append(month_index)
+    return tuple(month_indices)
+
+
+def _year_index_for_month_index(month_index: int, approval_date: date) -> int:
+    approval_month_offset = approval_date.month - 1
+    return ((month_index + approval_month_offset - 1) // 12) + 1
+
+
 def _build_monthlyized_output_rows(
     *,
     context: WorkbookSubmissionContext,
@@ -1330,7 +1416,9 @@ def _build_monthlyized_output_rows(
             mix_rows = aml_mix_lookup.get((row.geography_code, row.month_index))
             if not mix_rows:
                 raise ValueError(
-                    f"Missing AML_Mix rows for geography_code={row.geography_code!r}, month_index={row.month_index}."
+                    "Missing AML_Mix coverage for "
+                    f"geography_code={row.geography_code!r}, month_index={row.month_index}. "
+                    "Provide either a monthly override row or an annual year_index row."
                 )
             for segment_code, segment_share in mix_rows:
                 outputs.append(
@@ -1347,7 +1435,9 @@ def _build_monthlyized_output_rows(
             mix_rows = mds_mix_lookup.get((row.geography_code, row.month_index))
             if not mix_rows:
                 raise ValueError(
-                    f"Missing MDS_Mix rows for geography_code={row.geography_code!r}, month_index={row.month_index}."
+                    "Missing MDS_Mix coverage for "
+                    f"geography_code={row.geography_code!r}, month_index={row.month_index}. "
+                    "Provide either a monthly override row or an annual year_index row."
                 )
             for segment_code, segment_share in mix_rows:
                 outputs.append(
@@ -1423,6 +1513,7 @@ def _validate_required_mix_rows(
     module_rows: list[ForecastInputRow],
     mix_rows: list[dict[str, str]],
     module: str,
+    approval_date: date,
 ) -> None:
     required_keys = {
         (row.geography_code, row.month_index)
@@ -1436,8 +1527,10 @@ def _validate_required_mix_rows(
     missing_keys = sorted(required_keys - available_keys)
     if missing_keys:
         geography_code, month_index = missing_keys[0]
+        year_index = _year_index_for_month_index(month_index, approval_date)
         raise ValueError(
-            f"{module}_Mix is missing required rows for geography_code={geography_code!r}, month_index={month_index}."
+            f"{module}_Mix is missing required annual or monthly coverage for geography_code={geography_code!r}, "
+            f"month_index={month_index}, year_index={year_index}."
         )
 
 
@@ -1563,7 +1656,7 @@ def _write_import_outputs(
         "warnings": list(warnings),
         "notes": [
             "Annual_to_Monthly_Profiles remain editable starter defaults rather than fixed business assumptions.",
-            "CML_Prevalent_Assumptions generates inp_cml_prevalent.csv for validation and can generate fallback CML_Prevalent demand only when explicit forecast rows are absent.",
+            "CML_Prevalent_Assumptions is optional for explicit CML_Prevalent demand import. If provided, it generates inp_cml_prevalent.csv for validation; if explicit forecast rows are absent, it can also generate fallback CML_Prevalent demand.",
             "The importer writes monthlyized_output.csv as the authoritative normalized monthly workbook export in Phase 1; the workbook tab is reserved as a generated/reference placeholder.",
             "exhaustion_rule is carried as workbook metadata and does not introduce new depletion logic beyond the supplied annual totals, launch_month_index, and duration_months.",
         ],
@@ -1610,15 +1703,19 @@ def _build_warnings(
         warnings.append(
             "MDS_Mix rows were imported, but MDS mix is validation/reference-only in segment_level mode."
         )
-    if cml_prevalent_primary_source == "explicit_forecast":
+    if cml_prevalent_primary_source == "explicit_forecast" and cml_pool_rows:
         warnings.append(
-            "Explicit CML_Prevalent forecast rows remained the primary demand input; CML_Prevalent_Assumptions was still loaded to generate the validation pool."
+            "Explicit CML_Prevalent forecast rows remained the primary demand input; CML_Prevalent_Assumptions was used only to generate the validation pool."
+        )
+    elif cml_prevalent_primary_source == "explicit_forecast":
+        warnings.append(
+            "Explicit CML_Prevalent forecast rows remained the primary demand input. No usable CML_Prevalent_Assumptions rows were provided, so no validation pool was generated and inp_cml_prevalent.csv is header-only."
         )
     elif cml_prevalent_primary_source == "assumption_fallback":
         warnings.append(
             "No explicit CML_Prevalent forecast rows were found in the active source sheet, so fallback monthly demand was generated from CML_Prevalent_Assumptions."
         )
-    if not cml_pool_rows:
+    if not cml_pool_rows and cml_prevalent_primary_source != "explicit_forecast":
         warnings.append(
             "inp_cml_prevalent.csv is header-only because no usable CML_Prevalent_Assumptions rows were provided."
         )

@@ -159,6 +159,12 @@ class PlanYieldConfig:
 
 
 @dataclass(frozen=True)
+class DSConfig:
+    qty_per_dp_unit_mg: float
+    overage_factor: float
+
+
+@dataclass(frozen=True)
 class SSConfig:
     ratio_to_fg: float
 
@@ -181,6 +187,7 @@ class Phase2Config:
     dose_reduction: DoseReductionConfig
     commercial_adjustments: CommercialAdjustmentsConfig
     plan_yield: PlanYieldConfig
+    ds: DSConfig
     ss: SSConfig
     validation: ValidationConfig
 
@@ -206,6 +213,7 @@ def load_phase2_config(scenario_path: Path) -> Phase2Config:
     dose_reduction_data = parameter_data["dose_reduction"]
     commercial_adjustments_data = parameter_data["commercial_adjustments"]
     plan_yield_data = parameter_data["yield"]["plan"]
+    ds_data = parameter_data["ds"]
     ss_data = parameter_data["ss"]
     validation_data = parameter_data["validation"]
     inputs_data = scenario_data["inputs"]
@@ -263,6 +271,16 @@ def load_phase2_config(scenario_path: Path) -> Phase2Config:
     ):
         if value == 0:
             raise ValueError(f"{field_name} must be greater than zero.")
+    ds = DSConfig(
+        qty_per_dp_unit_mg=_parse_positive_float(
+            ds_data["qty_per_dp_unit_mg"],
+            "ds.qty_per_dp_unit_mg",
+        ),
+        overage_factor=_parse_nonnegative_float(
+            ds_data["overage_factor"],
+            "ds.overage_factor",
+        ),
+    )
     ss = SSConfig(
         ratio_to_fg=_parse_nonnegative_float(ss_data["ratio_to_fg"], "ss.ratio_to_fg")
     )
@@ -282,6 +300,7 @@ def load_phase2_config(scenario_path: Path) -> Phase2Config:
         dose_reduction=dose_reduction,
         commercial_adjustments=commercial_adjustments,
         plan_yield=plan_yield,
+        ds=ds,
         ss=ss,
         validation=validation,
     )

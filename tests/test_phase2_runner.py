@@ -25,6 +25,9 @@ def test_phase2_checked_in_base_config_uses_module_specific_approved_defaults() 
     assert config.get_module_settings("CML_Prevalent").doses_per_patient_per_month == pytest.approx(1.0)
     assert config.get_module_settings("AML").fg_mg_per_unit == pytest.approx(1.0)
     assert config.get_module_settings("AML").fg_vialing_rule == "ceil_mg_per_unit_no_sharing"
+    assert config.plan_yield.ds_to_dp == pytest.approx(0.90)
+    assert config.ds.qty_per_dp_unit_mg == pytest.approx(1.0)
+    assert config.ds.overage_factor == pytest.approx(0.05)
 
 
 def test_phase2_fixed_dose_base_case_uses_approved_aml_defaults(tmp_path: Path) -> None:
@@ -50,6 +53,8 @@ def test_phase2_fixed_dose_base_case_uses_approved_aml_defaults(tmp_path: Path) 
     assert row.fg_units_before_pack_yield == pytest.approx(43.3)
     assert row.fg_units_required == pytest.approx(43.3)
     assert row.ss_units_required == pytest.approx(43.3)
+    assert row.dp_units_required == pytest.approx(44.183673469387756)
+    assert row.ds_required == pytest.approx(51.54761904761905)
 
 
 def test_phase2_weight_based_base_case_uses_approved_defaults(tmp_path: Path) -> None:
@@ -72,6 +77,7 @@ def test_phase2_weight_based_base_case_uses_approved_defaults(tmp_path: Path) ->
     assert row.doses_required == pytest.approx(17.32)
     assert row.mg_required == pytest.approx(3.18688)
     assert row.fg_units_required == pytest.approx(17.32)
+    assert row.ds_required == pytest.approx(20.619047619047617)
 
 
 def test_phase2_no_sharing_cml_prevalent_vialing_uses_patient_dose_level_rounding(tmp_path: Path) -> None:
@@ -94,6 +100,8 @@ def test_phase2_no_sharing_cml_prevalent_vialing_uses_patient_dose_level_roundin
     assert row.fg_units_before_pack_yield == pytest.approx(18.0)
     assert row.fg_units_required == pytest.approx(18.0)
     assert row.ss_units_required == pytest.approx(18.0)
+    assert row.dp_units_required == pytest.approx(18.367346938775512)
+    assert row.ds_required == pytest.approx(21.428571428571427)
 
 
 def test_phase2_module_specific_doses_per_patient_per_month_is_respected(tmp_path: Path) -> None:
@@ -155,7 +163,8 @@ def test_phase2_dose_reduction_recalculates_patient_dose_vialing_after_mg_reduct
     assert reduced_row.fg_units_required == pytest.approx(43.3)
     assert reduced_row.ss_units_required == pytest.approx(43.3)
     assert reduced_row.dp_units_required == pytest.approx(44.183673469387756)
-    assert reduced_row.ds_required == pytest.approx(46.50913099935553)
+    assert base_row.ds_required == pytest.approx(103.0952380952381)
+    assert reduced_row.ds_required == pytest.approx(51.54761904761905)
 
 
 def test_phase2_cml_modules_remain_separate_through_outputs(tmp_path: Path) -> None:
@@ -198,7 +207,30 @@ def test_phase2_ss_ratio_and_planning_yields_are_applied_after_patient_dose_vial
     assert row.fg_units_required == pytest.approx(10.0)
     assert row.ss_units_required == pytest.approx(15.0)
     assert row.dp_units_required == pytest.approx(20.0)
-    assert row.ds_required == pytest.approx(80.0)
+    assert row.ds_required == pytest.approx(84.0)
+
+
+def test_phase2_ds_conversion_uses_approved_yield_and_overage_not_legacy_divide_by_point95(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_phase2_scenario(
+        tmp_path,
+        scenario_name="DS_FORMULA",
+        monthlyized_rows=[
+            "DS_FORMULA,US,CML_Incident,CML_Incident,1,2029-01-01,10,monthly,segment_level,test,,fixture",
+        ],
+        ds_to_dp_yield=0.90,
+        dp_to_fg_yield=0.5,
+        ds_qty_per_dp_unit_mg=1.0,
+        ds_overage_factor=0.05,
+    )
+
+    result = run_phase2_scenario(scenario_path)
+    row = result.outputs[0]
+
+    assert row.dp_units_required == pytest.approx(20.0)
+    assert row.ds_required == pytest.approx(23.333333333333336)
+    assert row.ds_required != pytest.approx(20.0 / 0.95)
 
 
 def test_phase2_output_keys_are_unique_and_writer_emits_machine_readable_csv(tmp_path: Path) -> None:
@@ -219,6 +251,10 @@ def test_phase2_output_keys_are_unique_and_writer_emits_machine_readable_csv(tmp
     assert len({row.key for row in result.outputs}) == len(result.outputs)
     assert len(rows) == 2
     assert rows[0]["planning_yields_used"].startswith("{")
+    assert float(rows[0]["ds_required"]) == pytest.approx(result.outputs[0].ds_required)
+    assert float(rows[0]["ds_required_mg"]) == pytest.approx(result.outputs[0].ds_required)
+    assert float(rows[0]["ds_required_g"]) == pytest.approx(result.outputs[0].ds_required / 1000.0)
+    assert float(rows[0]["ds_required_kg"]) == pytest.approx(result.outputs[0].ds_required / 1_000_000.0)
 
 
 def test_phase2_duplicate_input_keys_fail_validation(tmp_path: Path) -> None:

@@ -100,8 +100,8 @@ def test_import_commercial_forecast_workbook_monthly_mode_writes_normalized_phas
         "geography_master": 2,
         "commercial_forecast_module_level": 4,
         "commercial_forecast_segment_level": 4,
-        "aml_segment_mix": 39,
-        "mds_segment_mix": 26,
+        "aml_segment_mix": 72,
+        "mds_segment_mix": 48,
         "inp_cml_prevalent": 33,
         "monthlyized_output": 7,
     }
@@ -120,6 +120,20 @@ def test_import_commercial_forecast_workbook_monthly_mode_writes_normalized_phas
         geography_code="US",
         month_index="1",
     )["addressable_prevalent_pool"] == "1.2"
+
+    aml_mix_rows = _read_csv(output_dir / "aml_segment_mix.csv")
+    assert _find_row(
+        aml_mix_rows,
+        geography_code="US",
+        month_index="1",
+        segment_code="1L_fit",
+    )["segment_share"] == "0.4"
+    assert _find_row(
+        aml_mix_rows,
+        geography_code="US",
+        month_index="2",
+        segment_code="1L_fit",
+    )["segment_share"] == "0.5"
 
     monthlyized_rows = _read_csv(output_dir / "monthlyized_output.csv")
     assert _find_row(
@@ -143,7 +157,9 @@ def test_import_commercial_forecast_workbook_monthly_mode_writes_normalized_phas
     assert any("authoritative normalized monthly workbook export" in note for note in summary["notes"])
 
 
-def test_import_commercial_forecast_workbook_annual_mode_monthlyizes_and_allocates(tmp_path: Path) -> None:
+def test_import_commercial_forecast_workbook_annual_mode_expands_annual_mix_and_allocates(
+    tmp_path: Path,
+) -> None:
     workbook_path = tmp_path / "CBX250_Commercial_Forecast_Template.xlsx"
     output_dir = tmp_path / "normalized_annual_submission"
 
@@ -171,6 +187,20 @@ def test_import_commercial_forecast_workbook_annual_mode_monthlyizes_and_allocat
         month_index="1",
     )["patients_treated"] == "0.9"
 
+    aml_mix_rows = _read_csv(output_dir / "aml_segment_mix.csv")
+    assert _find_row(
+        aml_mix_rows,
+        geography_code="US",
+        month_index="1",
+        segment_code="1L_fit",
+    )["segment_share"] == "0.4"
+    assert _find_row(
+        aml_mix_rows,
+        geography_code="EU",
+        month_index="12",
+        segment_code="RR",
+    )["segment_share"] == "0.25"
+
     monthlyized_rows = _read_csv(output_dir / "monthlyized_output.csv")
     assert _find_row(
         monthlyized_rows,
@@ -186,6 +216,52 @@ def test_import_commercial_forecast_workbook_annual_mode_monthlyizes_and_allocat
         segment_code="CML_Prevalent",
         month_index="1",
     )["patients_treated_monthly"] == "0.9"
+
+
+def test_import_commercial_forecast_workbook_monthly_override_mix_takes_precedence_over_annual_mix(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Commercial_Forecast_Template.xlsx"
+    output_dir = tmp_path / "normalized_annual_override_submission"
+
+    build_commercial_forecast_template(workbook_path)
+    _set_cell(workbook_path, "Inputs", "B4", "annual")
+    _set_cell(workbook_path, "AML_Mix", "D4", 1)
+    _set_cell(workbook_path, "AML_Mix", "E4", 0.8)
+    _set_cell(workbook_path, "AML_Mix", "F4", 0.1)
+    _set_cell(workbook_path, "AML_Mix", "G4", 0.1)
+
+    import_commercial_forecast_workbook(workbook_path, output_dir=output_dir)
+
+    monthlyized_rows = _read_csv(output_dir / "monthlyized_output.csv")
+    assert _find_row(
+        monthlyized_rows,
+        geography_code="US",
+        module="AML",
+        segment_code="1L_fit",
+        month_index="1",
+    )["patients_treated_monthly"] == "1.92"
+    assert _find_row(
+        monthlyized_rows,
+        geography_code="US",
+        module="AML",
+        segment_code="1L_fit",
+        month_index="2",
+    )["patients_treated_monthly"] == "1.44"
+
+
+def test_import_commercial_forecast_workbook_fails_when_required_mix_is_missing_at_both_levels(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Commercial_Forecast_Template.xlsx"
+
+    build_commercial_forecast_template(workbook_path)
+    _set_cell(workbook_path, "Inputs", "B4", "annual")
+    for cell_ref in ("B2", "C2", "E2", "F2", "G2"):
+        _set_cell(workbook_path, "AML_Mix", cell_ref, "")
+
+    with pytest.raises(ValueError, match="AML_Mix is missing required annual or monthly coverage"):
+        import_commercial_forecast_workbook(workbook_path)
 
 
 def test_import_commercial_forecast_workbook_uses_cml_prevalent_fallback_when_explicit_rows_missing(
@@ -214,6 +290,39 @@ def test_import_commercial_forecast_workbook_uses_cml_prevalent_fallback_when_ex
     summary = json.loads((output_dir / "workbook_import_summary.json").read_text(encoding="utf-8"))
     assert summary["cml_prevalent_primary_source"] == "assumption_fallback"
     assert any("fallback monthly demand was generated" in warning for warning in summary["warnings"])
+
+
+def test_import_commercial_forecast_workbook_allows_explicit_cml_prevalent_without_assumptions(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Commercial_Forecast_Template.xlsx"
+    output_dir = tmp_path / "normalized_explicit_without_pool_submission"
+
+    build_commercial_forecast_template(workbook_path)
+    for row_number in range(2, 5):
+        for column_letter in ("B", "C", "E", "F", "G", "H", "I", "J", "K"):
+            _set_cell(workbook_path, "CML_Prevalent_Assumptions", f"{column_letter}{row_number}", "")
+
+    result = import_commercial_forecast_workbook(workbook_path, output_dir=output_dir)
+
+    assert result.context.forecast_frequency == "monthly"
+    assert result.row_counts["inp_cml_prevalent"] == 0
+
+    monthlyized_rows = _read_csv(output_dir / "monthlyized_output.csv")
+    assert _find_row(
+        monthlyized_rows,
+        geography_code="EU",
+        module="CML_Prevalent",
+        segment_code="CML_Prevalent",
+        month_index="1",
+    )["patients_treated_monthly"] == "18"
+
+    cml_pool_rows = _read_csv(output_dir / "inp_cml_prevalent.csv")
+    assert cml_pool_rows == []
+
+    summary = json.loads((output_dir / "workbook_import_summary.json").read_text(encoding="utf-8"))
+    assert summary["cml_prevalent_primary_source"] == "explicit_forecast"
+    assert any("No usable CML_Prevalent_Assumptions rows were provided" in warning for warning in summary["warnings"])
 
 
 def test_import_commercial_forecast_workbook_fails_when_profile_weights_do_not_sum_to_100(

@@ -79,6 +79,39 @@ def test_build_commercial_forecast_template_creates_expected_workbook(tmp_path: 
     ]
 
     assert _row_values(output_path, sheet_map["Inputs"], 4)[:2] == ["forecast_frequency", "monthly"]
+    assert _row_values(output_path, sheet_map["Instructions"], 5) == [
+        "Mix override rule",
+        "Use month_index mix rows only when the within-year segment mix differs from the standard annual mix.",
+        "If both are present, month_index rows override year_index rows for the same geography and month. CML modules stay separate and do not use AML/MDS mix logic.",
+    ]
+    assert _row_values(output_path, sheet_map["Instructions"], 7) == [
+        "CML_Prevalent precedence",
+        "If explicit CML_Prevalent forecast rows exist in the active forecast tab, they are the primary demand input.",
+        "CML_Prevalent_Assumptions is optional for explicit demand import. If provided, it generates the validation pool; if explicit CML_Prevalent rows are missing, the assumptions sheet can generate a fallback monthly series.",
+    ]
+    assert _row_values(output_path, sheet_map["AML_Mix"], 1) == [
+        "scenario_name",
+        "geography_code",
+        "year_index",
+        "month_index",
+        "1L_fit_share",
+        "1L_unfit_share",
+        "RR_share",
+        "sum_check",
+        "status",
+    ]
+    assert _row_values(output_path, sheet_map["AML_Mix"], 2)[1:7] == ["US", "1", "", "0.4", "0.35", "0.25"]
+    assert _row_values(output_path, sheet_map["MDS_Mix"], 1) == [
+        "scenario_name",
+        "geography_code",
+        "year_index",
+        "month_index",
+        "HR_MDS_share",
+        "LR_MDS_share",
+        "sum_check",
+        "status",
+    ]
+    assert _row_values(output_path, sheet_map["MDS_Mix"], 2)[1:6] == ["EU", "1", "", "0.6", "0.4"]
     assert _row_values(output_path, sheet_map["Annual_to_Monthly_Profiles"], 2)[:5] == [
         "FLAT_12",
         "",
