@@ -29,11 +29,14 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 - `python -m pytest tests/test_phase1_acceptance.py`
 - `python -m pytest tests/test_phase2_runner.py tests/test_phase2_acceptance.py`
 - `python -m pytest tests/test_forecast_workflow.py`
+- `python -m pytest tests/test_assumptions_template.py tests/test_assumptions_import.py`
 - `python scripts/run_phase1.py --scenario config/scenarios/base_phase1.toml`
 - `python scripts/build_real_scenario_01.py`
 - `python scripts/run_phase1.py --scenario config/scenarios/real_scenario_01.toml`
 - `python scripts/generate_commercial_forecast_template.py`
 - `python scripts/import_commercial_forecast_workbook.py --workbook templates/CBX250_Commercial_Forecast_Template.xlsx`
+- `python scripts/generate_model_assumptions_template.py`
+- `python scripts/assumptions_import.py --workbook templates/CBX250_Model_Assumptions_Template.xlsx`
 - `python scripts/run_phase2.py --scenario config/scenarios/base_phase2.toml`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029" --overwrite`
 
@@ -58,6 +61,45 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 - `data/curated/<scenario_name>/commercial_forecast_module_level.csv` or `data/curated/<scenario_name>/commercial_forecast_segment_level.csv` remain the lower-level normalized contract inputs consumed by the current Phase 1 runner, depending on `forecast_grain`.
 - `data/curated/<scenario_name>/inp_cml_prevalent.csv` is the CML prevalent validation-pool file generated from workbook assumptions when usable assumptions are provided; otherwise it is written as header-only and the importer warns that no pool validation was generated.
 - The workbook tab `Monthlyized_Output` is a generated/reference placeholder in Phase 1 unless future exporter logic explicitly writes rows back into the workbook.
+
+## Assumptions Workbook
+- Use `templates/CBX250_Model_Assumptions_Template.xlsx` as the business-facing assumptions entry point instead of hand-editing Phase 2 TOML files.
+- Generate a fresh workbook with:
+  - `python scripts/generate_model_assumptions_template.py`
+- Import a completed assumptions workbook with:
+  - `python scripts/assumptions_import.py --workbook templates/CBX250_Model_Assumptions_Template.xlsx`
+- By default the importer writes normalized artifacts under:
+  - `data/outputs/<scenario_name>/assumptions/`
+- Generated artifacts include:
+  - `scenario_controls.csv`
+  - `launch_timing.csv`
+  - `dosing_assumptions.csv`
+  - `product_parameters.csv`
+  - `yield_assumptions.csv`
+  - `packaging_and_vialing.csv`
+  - `ss_assumptions.csv`
+  - `cml_prevalent_assumptions.csv`
+  - `trade_inventory_futurehooks.csv`
+  - `resolved_phase2_config_snapshot.json`
+  - `assumptions_import_summary.json`
+  - `generated_phase2_parameters.toml`
+  - `generated_phase2_scenario.toml`
+- Current wiring into the active Phase 2 engine:
+  - `Scenario_Controls.dose_basis_default -> model.dose_basis`
+  - `Dosing_Assumptions` module rows -> `module_settings.<module>` fixed dose, weight-based dose, average weight, and doses-per-patient-per-month
+  - `Product_Parameters` scenario default plus module override rows -> module `fg_mg_per_unit`
+  - `Packaging_and_Vialing` module rows -> module `fg_vialing_rule`
+  - `Yield_Assumptions` scenario-default row -> `yield.plan.*` and `ds.overage_factor`
+  - `Product_Parameters` scenario-default row -> `ds.qty_per_dp_unit_mg`
+  - `SS_Assumptions` scenario-default row -> `ss.ratio_to_fg` and `model.co_pack_mode`
+- Preserved as future-ready only in this task:
+  - `Launch_Timing`
+  - `CML_Prevalent_Assumptions`
+  - `Trade_Inventory_FutureHooks`
+  - `Product_Parameters` module overrides for `ds_qty_per_dp_unit_mg`
+  - `Yield_Assumptions` module overrides for `ds_overage_factor`
+  - `dp_concentration_mg_per_ml`
+  - `dp_fill_volume_ml`
 
 ## One-Command Workflow
 - Run the end-to-end import plus deterministic cascade from the repo root with:

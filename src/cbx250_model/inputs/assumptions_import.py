@@ -1034,7 +1034,7 @@ def _resolve_phase2_config(
         for row in active_yield_rows
     ):
         warnings.append(
-            "Yield_Assumptions module_override rows are preserved in normalized artifacts. Current Phase 2 wiring still uses the scenario_default row for ds_overage_factor and plan yields."
+            "Yield_Assumptions module_override ds_overage_factor rows are preserved in normalized artifacts. Current Phase 2 wiring still uses the scenario_default row for ds_overage_factor and plan yields."
         )
     if any(row["active_flag"] == "true" and row["geography_code"] != "ALL" for row in active_product_rows + active_yield_rows + active_packaging_rows + active_ss_rows):
         warnings.append(

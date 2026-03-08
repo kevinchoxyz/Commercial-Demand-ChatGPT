@@ -58,3 +58,9 @@ Authoritative Phase 1 workbook-import outputs:
 - `monthlyized_output.csv` is the authoritative normalized monthly workbook export.
 - `commercial_forecast_module_level.csv` or `commercial_forecast_segment_level.csv` remain the lower-level normalized contract inputs used by the current Phase 1 runner, depending on `forecast_grain`.
 - `inp_cml_prevalent.csv` is the CML prevalent validation-pool file generated from workbook assumptions when usable assumptions are provided; otherwise it is written as header-only.
+
+Separate from the Commercial forecast workbook, the repo now also includes a business-facing assumptions workbook:
+- `templates/CBX250_Model_Assumptions_Template.xlsx`
+- generate it with `python scripts/generate_model_assumptions_template.py`
+- import it with `python scripts/assumptions_import.py --workbook templates/CBX250_Model_Assumptions_Template.xlsx`
+- the assumptions importer writes normalized assumption artifacts plus generated Phase 2 config files under `data/outputs/<scenario_name>/assumptions/`
