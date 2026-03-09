@@ -67,6 +67,7 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
         "Scenario_Controls",
         "Launch_Timing",
         "Dosing_Assumptions",
+        "Treatment_Duration_Assumptions",
         "Product_Parameters",
         "Yield_Assumptions",
         "Packaging_and_Vialing",
@@ -77,19 +78,20 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
     ]
 
     assert _row_values(output_path, sheet_map["Instructions"], 5) == [
-        "Scope precedence",
-        "When a sheet supports both scenario-level defaults and module-specific overrides, module-specific override rows take precedence over scenario-default rows.",
-        "Current generated Phase 2 config already applies this precedence for module FG mg per unit. For ds_qty_per_dp_unit_mg and ds_overage_factor, module overrides are preserved in normalized artifacts but the current engine still consumes the scenario default only.",
+        "Phase 1 demand basis",
+        "patient_starts is the preferred default operating mode and represents the approved base-case commercial input path.",
+        "treated_census remains supported for backward compatibility and special cases only. Do not apply duration logic on top of already treated-census inputs.",
     ]
     assert _row_values(output_path, sheet_map["Scenario_Controls"], 2) == [
         "BASE_2029",
         "Approved base-case assumptions bridge",
         "yes",
         "module_level",
-        "monthly",
+        "annual",
+        "patient_starts",
         "fixed",
         "USD",
-        "Edit this row instead of hand-editing Phase 2 TOML files.",
+        "Edit this row instead of hand-editing config files. Seeded for the annual patient_starts base case.",
     ]
     assert _row_values(output_path, sheet_map["Dosing_Assumptions"], 1) == [
         "scenario_name",
@@ -127,6 +129,23 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
         "0",
         "yes",
         "Approved AML base-case cadence QW -> 4.33.",
+    ]
+    assert _row_values(output_path, sheet_map["Treatment_Duration_Assumptions"], 1) == [
+        "scenario_name",
+        "module",
+        "segment_code",
+        "geography_code",
+        "treatment_duration_months",
+        "active_flag",
+        "notes",
+    ]
+    assert _row_values(output_path, sheet_map["Treatment_Duration_Assumptions"], 2)[1:] == [
+        "AML",
+        "1L_fit",
+        "ALL",
+        "12",
+        "yes",
+        "Approved base-case duration default.",
     ]
     assert _row_values(output_path, sheet_map["Product_Parameters"], 2)[1:] == [
         "scenario_default",

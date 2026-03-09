@@ -29,6 +29,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional override for the normalized output directory.",
     )
+    parser.add_argument(
+        "--treatment-duration-file",
+        type=Path,
+        default=None,
+        help="Optional treatment duration assumptions CSV. Required when the forecast workbook uses demand_basis=patient_starts.",
+    )
     return parser.parse_args()
 
 
@@ -37,6 +43,7 @@ def main() -> int:
     result = import_commercial_forecast_workbook(
         workbook_path=args.workbook,
         output_dir=args.output_dir,
+        treatment_duration_path=args.treatment_duration_file,
     )
     print(
         json.dumps(
@@ -46,6 +53,7 @@ def main() -> int:
                 "scenario_name": result.context.scenario_name,
                 "forecast_grain": result.context.forecast_grain,
                 "forecast_frequency": result.context.forecast_frequency,
+                "demand_basis": result.context.demand_basis,
                 "us_aml_mds_initial_approval_date": result.context.us_aml_mds_initial_approval_date.isoformat(),
                 "real_geography_list_confirmed": result.context.real_geography_list_confirmed,
                 "row_counts": result.row_counts,

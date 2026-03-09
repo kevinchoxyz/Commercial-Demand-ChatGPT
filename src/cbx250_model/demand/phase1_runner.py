@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Sequence
 
 from ..calendar.monthly_calendar import MonthlyCalendar, build_monthly_calendar
+from ..constants import DEMAND_BASIS_PATIENT_STARTS
 from ..dimensions.tables import build_dimensions
 from ..inputs.config_schema import Phase1Config, load_phase1_config
 from ..inputs.loaders import InputBundle, load_phase1_inputs
@@ -17,6 +18,10 @@ from ..validation.framework import ValidationReport
 from ..validation.rules import run_phase1_validations
 from .aml import AMLDemandModule
 from .base import DemandOutputRecord
+from .cohort_engine import (
+    build_treated_census_from_patient_starts,
+    resolve_treatment_duration_months,
+)
 from .cml_incident import CMLIncidentDemandModule
 from .cml_prevalent import CMLPrevalentDemandModule
 from .mds import MDSDemandModule
@@ -51,6 +56,13 @@ def run_phase1_scenario(scenario_path: str | Path) -> Phase1RunResult:
         for module in modules
         for output in module.build(config, calendar, inputs=inputs)
     )
+    if config.model.demand_basis == DEMAND_BASIS_PATIENT_STARTS:
+        outputs = _apply_patient_starts_cohort_logic(
+            config=config,
+            inputs=inputs,
+            calendar=calendar,
+            outputs=outputs,
+        )
 
     validation = run_phase1_validations(config, inputs, calendar, outputs)
     dimensions = build_dimensions(calendar, inputs)
@@ -61,6 +73,68 @@ def run_phase1_scenario(scenario_path: str | Path) -> Phase1RunResult:
         dimensions=dimensions,
         outputs=outputs,
         validation=validation,
+    )
+
+
+def _apply_patient_starts_cohort_logic(
+    *,
+    config: Phase1Config,
+    inputs: InputBundle,
+    calendar: MonthlyCalendar,
+    outputs: tuple[DemandOutputRecord, ...],
+) -> tuple[DemandOutputRecord, ...]:
+    grouped: dict[tuple[str, str, str], dict[int, DemandOutputRecord]] = {}
+    for output in outputs:
+        grouped.setdefault(
+            (output.geography_code, output.module, output.segment_code),
+            {},
+        )[output.month_index] = output
+
+    transformed_outputs: list[DemandOutputRecord] = []
+    for (geography_code, module, segment_code), rows_by_month in sorted(grouped.items()):
+        treatment_duration_months = resolve_treatment_duration_months(
+            records=inputs.treatment_duration_assumptions,
+            geography_code=geography_code,
+            module=module,
+            segment_code=segment_code,
+        )
+        audit_rows = build_treated_census_from_patient_starts(
+            starts_by_month={
+                month_index: row.patients_treated
+                for month_index, row in rows_by_month.items()
+            },
+            treatment_duration_months=treatment_duration_months,
+            horizon_months=config.horizon.forecast_horizon_months,
+        )
+        for audit_row in audit_rows:
+            transformed_outputs.append(
+                DemandOutputRecord(
+                    scenario_name=config.scenario_name,
+                    geography_code=geography_code,
+                    indication_code=rows_by_month[min(rows_by_month)].indication_code,
+                    module=module,
+                    segment_code=segment_code,
+                    month_index=audit_row.month_index,
+                    month_start=calendar.get_month(audit_row.month_index).month_start,
+                    patients_treated=audit_row.patients_treated,
+                    demand_basis_used=config.model.demand_basis,
+                    starts_input=audit_row.starts_input,
+                    continuing_patients=audit_row.continuing_patients,
+                    rolloff_patients=audit_row.rolloff_patients,
+                    treatment_duration_months_used=treatment_duration_months,
+                )
+            )
+
+    return tuple(
+        sorted(
+            transformed_outputs,
+            key=lambda output: (
+                output.geography_code,
+                output.module,
+                output.segment_code,
+                output.month_index,
+            ),
+        )
     )
 
 

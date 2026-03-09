@@ -91,11 +91,14 @@ def test_import_commercial_forecast_workbook_monthly_mode_writes_normalized_phas
     output_dir = tmp_path / "normalized_submission"
 
     build_commercial_forecast_template(workbook_path)
+    _set_cell(workbook_path, "Inputs", "B4", "monthly")
+    _set_cell(workbook_path, "Inputs", "B5", "treated_census")
     result = import_commercial_forecast_workbook(workbook_path, output_dir=output_dir)
 
     assert result.context.scenario_name == "BASE_2029"
     assert result.context.forecast_grain == "module_level"
     assert result.context.forecast_frequency == "monthly"
+    assert result.context.demand_basis == "treated_census"
     assert result.row_counts == {
         "geography_master": 2,
         "commercial_forecast_module_level": 4,
@@ -103,6 +106,7 @@ def test_import_commercial_forecast_workbook_monthly_mode_writes_normalized_phas
         "aml_segment_mix": 72,
         "mds_segment_mix": 48,
         "inp_cml_prevalent": 33,
+        "treatment_duration_assumptions": 0,
         "monthlyized_output": 7,
     }
 
@@ -153,6 +157,7 @@ def test_import_commercial_forecast_workbook_monthly_mode_writes_normalized_phas
 
     summary = json.loads((output_dir / "workbook_import_summary.json").read_text(encoding="utf-8"))
     assert summary["forecast_frequency"] == "monthly"
+    assert summary["demand_basis"] == "treated_census"
     assert summary["cml_prevalent_primary_source"] == "explicit_forecast"
     assert any("authoritative normalized monthly workbook export" in note for note in summary["notes"])
 
@@ -165,12 +170,15 @@ def test_import_commercial_forecast_workbook_annual_mode_expands_annual_mix_and_
 
     build_commercial_forecast_template(workbook_path)
     _set_cell(workbook_path, "Inputs", "B4", "annual")
+    _set_cell(workbook_path, "Inputs", "B5", "treated_census")
 
     result = import_commercial_forecast_workbook(workbook_path, output_dir=output_dir)
 
     assert result.context.forecast_frequency == "annual"
+    assert result.context.demand_basis == "treated_census"
     assert result.row_counts["commercial_forecast_module_level"] == 48
     assert result.row_counts["commercial_forecast_segment_level"] == 48
+    assert result.row_counts["treatment_duration_assumptions"] == 0
     assert result.row_counts["monthlyized_output"] == 84
 
     module_rows = _read_csv(output_dir / "commercial_forecast_module_level.csv")
@@ -226,6 +234,7 @@ def test_import_commercial_forecast_workbook_monthly_override_mix_takes_preceden
 
     build_commercial_forecast_template(workbook_path)
     _set_cell(workbook_path, "Inputs", "B4", "annual")
+    _set_cell(workbook_path, "Inputs", "B5", "treated_census")
     _set_cell(workbook_path, "AML_Mix", "D4", 1)
     _set_cell(workbook_path, "AML_Mix", "E4", 0.8)
     _set_cell(workbook_path, "AML_Mix", "F4", 0.1)
@@ -257,6 +266,7 @@ def test_import_commercial_forecast_workbook_fails_when_required_mix_is_missing_
 
     build_commercial_forecast_template(workbook_path)
     _set_cell(workbook_path, "Inputs", "B4", "annual")
+    _set_cell(workbook_path, "Inputs", "B5", "treated_census")
     for cell_ref in ("B2", "C2", "E2", "F2", "G2"):
         _set_cell(workbook_path, "AML_Mix", cell_ref, "")
 
@@ -271,6 +281,8 @@ def test_import_commercial_forecast_workbook_uses_cml_prevalent_fallback_when_ex
     output_dir = tmp_path / "normalized_fallback_submission"
 
     build_commercial_forecast_template(workbook_path)
+    _set_cell(workbook_path, "Inputs", "B4", "monthly")
+    _set_cell(workbook_path, "Inputs", "B5", "treated_census")
     for cell_ref in ("B5", "C5", "D5", "F5", "G5"):
         _set_cell(workbook_path, "ModuleLevel_Forecast", cell_ref, "")
 
@@ -278,6 +290,7 @@ def test_import_commercial_forecast_workbook_uses_cml_prevalent_fallback_when_ex
 
     assert result.row_counts["commercial_forecast_module_level"] == 36
     assert result.row_counts["monthlyized_output"] == 39
+    assert result.row_counts["treatment_duration_assumptions"] == 0
 
     module_rows = _read_csv(output_dir / "commercial_forecast_module_level.csv")
     assert _find_row(
@@ -299,6 +312,8 @@ def test_import_commercial_forecast_workbook_allows_explicit_cml_prevalent_witho
     output_dir = tmp_path / "normalized_explicit_without_pool_submission"
 
     build_commercial_forecast_template(workbook_path)
+    _set_cell(workbook_path, "Inputs", "B4", "monthly")
+    _set_cell(workbook_path, "Inputs", "B5", "treated_census")
     for row_number in range(2, 5):
         for column_letter in ("B", "C", "E", "F", "G", "H", "I", "J", "K"):
             _set_cell(workbook_path, "CML_Prevalent_Assumptions", f"{column_letter}{row_number}", "")
@@ -306,6 +321,7 @@ def test_import_commercial_forecast_workbook_allows_explicit_cml_prevalent_witho
     result = import_commercial_forecast_workbook(workbook_path, output_dir=output_dir)
 
     assert result.context.forecast_frequency == "monthly"
+    assert result.context.demand_basis == "treated_census"
     assert result.row_counts["inp_cml_prevalent"] == 0
 
     monthlyized_rows = _read_csv(output_dir / "monthlyized_output.csv")
@@ -331,7 +347,97 @@ def test_import_commercial_forecast_workbook_fails_when_profile_weights_do_not_s
     workbook_path = tmp_path / "CBX250_Commercial_Forecast_Template.xlsx"
 
     build_commercial_forecast_template(workbook_path)
+    _set_cell(workbook_path, "Inputs", "B4", "annual")
+    _set_cell(workbook_path, "Inputs", "B5", "treated_census")
     _set_cell(workbook_path, "Annual_to_Monthly_Profiles", "Q2", 0)
 
     with pytest.raises(ValueError, match="must sum to 100.0"):
+        import_commercial_forecast_workbook(workbook_path)
+
+
+def test_import_commercial_forecast_workbook_patient_starts_mode_rolls_forward_treated_census(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Commercial_Forecast_Template.xlsx"
+    output_dir = tmp_path / "normalized_patient_starts_submission"
+    treatment_duration_path = tmp_path / "treatment_duration_assumptions.csv"
+
+    build_commercial_forecast_template(workbook_path)
+    _set_cell(workbook_path, "Inputs", "B3", "segment_level")
+    _set_cell(workbook_path, "Inputs", "B4", "monthly")
+    _set_cell(workbook_path, "Inputs", "B5", "patient_starts")
+    for row_number in range(2, 5):
+        for column_letter in ("B", "C", "E", "F", "G", "H", "I", "J", "K"):
+            _set_cell(workbook_path, "CML_Prevalent_Assumptions", f"{column_letter}{row_number}", "")
+    for cell_ref in (
+        "B2", "C2", "D2", "E2", "G2", "H2",
+        "B3", "C3", "D3", "E3", "G3", "H3",
+        "B4", "C4", "D4", "E4", "G4", "H4",
+        "B5", "C5", "D5", "E5", "G5", "H5",
+    ):
+        _set_cell(workbook_path, "SegmentLevel_Forecast", cell_ref, "")
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "B2", "US")
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "C2", "AML")
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "D2", "1L_fit")
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "E2", 1)
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "G2", 10)
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "B3", "US")
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "C3", "AML")
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "D3", "1L_fit")
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "E3", 2)
+    _set_cell(workbook_path, "SegmentLevel_Forecast", "G3", 10)
+
+    treatment_duration_path.write_text(
+        "\n".join(
+            [
+                "scenario_name,geography_code,module,segment_code,treatment_duration_months,active_flag,notes",
+                "BASE_2029,ALL,AML,1L_fit,12,true,Approved base-case duration default.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = import_commercial_forecast_workbook(
+        workbook_path,
+        output_dir=output_dir,
+        treatment_duration_path=treatment_duration_path,
+    )
+
+    monthlyized_rows = _read_csv(output_dir / "monthlyized_output.csv")
+    assert result.context.demand_basis == "patient_starts"
+    assert result.row_counts["treatment_duration_assumptions"] == 1
+    assert _find_row(
+        monthlyized_rows,
+        geography_code="US",
+        module="AML",
+        segment_code="1L_fit",
+        month_index="2",
+    )["patients_treated_monthly"] == "20"
+    assert _find_row(
+        monthlyized_rows,
+        geography_code="US",
+        module="AML",
+        segment_code="1L_fit",
+        month_index="13",
+    )["rolloff_patients"] == "10"
+    assert _find_row(
+        monthlyized_rows,
+        geography_code="US",
+        module="AML",
+        segment_code="1L_fit",
+        month_index="13",
+    )["treatment_duration_months_used"] == "12"
+
+
+def test_import_commercial_forecast_workbook_patient_starts_mode_requires_duration_artifact(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Commercial_Forecast_Template.xlsx"
+
+    build_commercial_forecast_template(workbook_path)
+    _set_cell(workbook_path, "Inputs", "B4", "monthly")
+    _set_cell(workbook_path, "Inputs", "B5", "patient_starts")
+
+    with pytest.raises(ValueError, match="requires treatment duration assumptions"):
         import_commercial_forecast_workbook(workbook_path)

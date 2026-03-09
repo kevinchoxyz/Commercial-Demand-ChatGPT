@@ -1,0 +1,64 @@
+# APPROVED PHASE 3 DETERMINISTIC TRADE LAYER CONFIG
+# Channel-fill site-activation values remain clearly labeled PLACEHOLDER samples
+# until business-approved launch trade assumptions are loaded.
+
+[model]
+phase = 3
+build_scope = "deterministic_trade_layer"
+upstream_demand_contract = "phase2_deterministic_cascade.csv"
+
+[modules]
+enabled = ["AML", "MDS", "CML_Incident", "CML_Prevalent"]
+disabled = ["production", "inventory", "financials", "monte_carlo"]
+
+[trade]
+sublayer1_target_weeks_on_hand = 2.5
+sublayer2_target_weeks_on_hand = 1.5
+sublayer2_wastage_rate = 0.0
+initial_stocking_units_per_new_site = 6.0
+ss_units_per_new_site = 6.0
+sublayer1_launch_fill_months_of_demand = 1.0
+rems_certification_lag_weeks = 0.0
+january_softening_enabled = false
+january_softening_factor = 1.0
+bullwhip_flag_threshold = 0.25
+channel_fill_start_prelaunch_weeks = 4.0
+sublayer2_fill_distribution_weeks = 8.0
+weeks_per_month = 4.33
+
+[geography_defaults.US]
+site_activation_rate = 5.0
+certified_sites_at_launch = 5.0
+certified_sites_at_peak = 25.0
+
+[geography_defaults.EU]
+site_activation_rate = 3.0
+certified_sites_at_launch = 3.0
+certified_sites_at_peak = 18.0
+
+[launch_events.AML.US]
+launch_month_index = 1
+
+[launch_events.MDS.US]
+launch_month_index = 1
+
+[launch_events.CML_Incident.US]
+launch_month_index = 1
+
+[launch_events.CML_Prevalent.US]
+launch_month_index = 1
+
+[launch_events.AML.EU]
+launch_month_index = 1
+
+[launch_events.MDS.EU]
+launch_month_index = 1
+
+[launch_events.CML_Incident.EU]
+launch_month_index = 1
+
+[launch_events.CML_Prevalent.EU]
+launch_month_index = 1
+
+[validation]
+enforce_unique_output_keys = true

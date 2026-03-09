@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from ..calendar.monthly_calendar import MonthlyCalendar
-from ..constants import MODULE_TO_INDICATION, MODULE_TO_SEGMENTS
+from ..constants import DEMAND_BASIS_TREATED_CENSUS, MODULE_TO_INDICATION, MODULE_TO_SEGMENTS
 from ..inputs.config_schema import Phase1Config
 from ..inputs.schemas import ModuleLevelForecastRecord, SegmentLevelForecastRecord, SegmentMixRecord
 
@@ -22,6 +22,11 @@ class DemandOutputRecord:
     month_index: int
     month_start: date
     patients_treated: float
+    demand_basis_used: str = DEMAND_BASIS_TREATED_CENSUS
+    starts_input: float = 0.0
+    continuing_patients: float = 0.0
+    rolloff_patients: float = 0.0
+    treatment_duration_months_used: int | None = None
 
     @property
     def key(self) -> tuple[str, str, str, str, int]:
@@ -48,6 +53,11 @@ class DeterministicDemandModule:
         month_index: int,
         patients_treated: float,
         calendar: MonthlyCalendar,
+        demand_basis_used: str = DEMAND_BASIS_TREATED_CENSUS,
+        starts_input: float = 0.0,
+        continuing_patients: float = 0.0,
+        rolloff_patients: float = 0.0,
+        treatment_duration_months_used: int | None = None,
     ) -> DemandOutputRecord:
         month = calendar.get_month(month_index)
         return DemandOutputRecord(
@@ -59,6 +69,11 @@ class DeterministicDemandModule:
             month_index=month_index,
             month_start=month.month_start,
             patients_treated=patients_treated,
+            demand_basis_used=demand_basis_used,
+            starts_input=starts_input,
+            continuing_patients=continuing_patients,
+            rolloff_patients=rolloff_patients,
+            treatment_duration_months_used=treatment_duration_months_used,
         )
 
     def _pass_through_segment_level(

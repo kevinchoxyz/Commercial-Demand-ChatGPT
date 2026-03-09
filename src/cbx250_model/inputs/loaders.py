@@ -13,6 +13,7 @@ from .schemas import (
     ModuleLevelForecastRecord,
     SegmentLevelForecastRecord,
     SegmentMixRecord,
+    TreatmentDurationRecord,
 )
 
 
@@ -24,6 +25,7 @@ class InputBundle:
     aml_segment_mix: tuple[SegmentMixRecord, ...]
     mds_segment_mix: tuple[SegmentMixRecord, ...]
     cml_prevalent: tuple[CMLPrevalentPoolRecord, ...]
+    treatment_duration_assumptions: tuple[TreatmentDurationRecord, ...]
 
 
 def _load_csv_rows(path: Path, required_columns: tuple[str, ...]) -> list[dict[str, str]]:
@@ -75,6 +77,14 @@ def load_cml_prevalent(path: Path) -> tuple[CMLPrevalentPoolRecord, ...]:
     return tuple(CMLPrevalentPoolRecord.from_row(row) for row in rows)
 
 
+def load_treatment_duration_assumptions(path: Path) -> tuple[TreatmentDurationRecord, ...]:
+    rows = _load_csv_rows(
+        path,
+        ("geography_code", "module", "segment_code", "treatment_duration_months"),
+    )
+    return tuple(TreatmentDurationRecord.from_row(row) for row in rows)
+
+
 def load_phase1_inputs(config: Phase1Config) -> InputBundle:
     return InputBundle(
         module_level_forecast=load_module_level_forecast(
@@ -87,4 +97,7 @@ def load_phase1_inputs(config: Phase1Config) -> InputBundle:
         aml_segment_mix=load_segment_mix(config.input_paths.aml_segment_mix, module="AML"),
         mds_segment_mix=load_segment_mix(config.input_paths.mds_segment_mix, module="MDS"),
         cml_prevalent=load_cml_prevalent(config.input_paths.cml_prevalent),
+        treatment_duration_assumptions=load_treatment_duration_assumptions(
+            config.input_paths.treatment_duration_assumptions
+        ),
     )

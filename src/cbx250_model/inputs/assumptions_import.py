@@ -11,11 +11,13 @@ import os
 import re
 
 from ..constants import (
+    MODULE_TO_SEGMENTS,
     PHASE1_DISABLED_CAPABILITIES,
     PHASE1_MODULES,
     PHASE2_BUILD_SCOPE,
     PHASE2_UPSTREAM_DEMAND_CONTRACT,
     SUPPORTED_CO_PACK_MODES,
+    SUPPORTED_DEMAND_BASES,
     SUPPORTED_DOSE_BASES,
     SUPPORTED_FG_VIALING_RULES,
     SUPPORTED_FORECAST_FREQUENCIES,
@@ -31,6 +33,7 @@ SCENARIO_CONTROLS_HEADERS = (
     "active_flag",
     "forecast_grain",
     "forecast_frequency",
+    "demand_basis",
     "dose_basis_default",
     "base_currency",
     "notes",
@@ -60,6 +63,15 @@ DOSING_HEADERS = (
     "dose_reduction_pct",
     "adherence_rate",
     "free_goods_pct",
+    "active_flag",
+    "notes",
+)
+TREATMENT_DURATION_HEADERS = (
+    "scenario_name",
+    "module",
+    "segment_code",
+    "geography_code",
+    "treatment_duration_months",
     "active_flag",
     "notes",
 )
@@ -148,6 +160,7 @@ class AssumptionsWorkbookContext:
     scenario_description: str
     forecast_grain: str
     forecast_frequency: str
+    demand_basis: str
     dose_basis_default: str
     base_currency: str
     notes: str
@@ -181,6 +194,11 @@ def import_model_assumptions_workbook(
     )
     dosing_rows = _normalize_dosing_assumptions(
         reader.read_table("Dosing_Assumptions", DOSING_HEADERS),
+        allowed_scenario_names=allowed_scenario_names,
+        scenario_name=context.scenario_name,
+    )
+    treatment_duration_rows = _normalize_treatment_duration_assumptions(
+        reader.read_table("Treatment_Duration_Assumptions", TREATMENT_DURATION_HEADERS),
         allowed_scenario_names=allowed_scenario_names,
         scenario_name=context.scenario_name,
     )
@@ -237,6 +255,7 @@ def import_model_assumptions_workbook(
         scenario_controls_rows=scenario_controls_rows,
         launch_timing_rows=launch_timing_rows,
         dosing_rows=dosing_rows,
+        treatment_duration_rows=treatment_duration_rows,
         product_rows=product_rows,
         yield_rows=yield_rows,
         packaging_rows=packaging_rows,
@@ -251,6 +270,7 @@ def import_model_assumptions_workbook(
         "scenario_controls": len(scenario_controls_rows),
         "launch_timing": len(launch_timing_rows),
         "dosing_assumptions": len(dosing_rows),
+        "treatment_duration_assumptions": len(treatment_duration_rows),
         "product_parameters": len(product_rows),
         "yield_assumptions": len(yield_rows),
         "packaging_and_vialing": len(packaging_rows),
@@ -292,6 +312,11 @@ def _load_scenario_controls(
             raise ValueError(
                 f"Scenario_Controls row {index} has unsupported forecast_frequency {forecast_frequency!r}."
             )
+        demand_basis = _require_nonempty(row, "demand_basis", "Scenario_Controls", index)
+        if demand_basis not in SUPPORTED_DEMAND_BASES:
+            raise ValueError(
+                f"Scenario_Controls row {index} has unsupported demand_basis {demand_basis!r}."
+            )
         dose_basis_default = _require_nonempty(row, "dose_basis_default", "Scenario_Controls", index)
         if dose_basis_default not in SUPPORTED_DOSE_BASES:
             raise ValueError(
@@ -304,6 +329,7 @@ def _load_scenario_controls(
             "active_flag": _format_boolish(active_flag),
             "forecast_grain": forecast_grain,
             "forecast_frequency": forecast_frequency,
+            "demand_basis": demand_basis,
             "dose_basis_default": dose_basis_default,
             "base_currency": base_currency,
             "notes": row.get("notes", "").strip(),
@@ -332,6 +358,7 @@ def _load_scenario_controls(
         scenario_description=active_row["scenario_description"],
         forecast_grain=active_row["forecast_grain"],
         forecast_frequency=active_row["forecast_frequency"],
+        demand_basis=active_row["demand_basis"],
         dose_basis_default=active_row["dose_basis_default"],
         base_currency=active_row["base_currency"],
         notes=active_row["notes"],
@@ -478,6 +505,70 @@ def _normalize_dosing_assumptions(
                 "dose_reduction_pct": _format_numeric(dose_reduction_pct),
                 "adherence_rate": _format_numeric(adherence_rate),
                 "free_goods_pct": _format_numeric(free_goods_pct),
+                "active_flag": _format_boolish(active_flag),
+                "notes": row.get("notes", "").strip(),
+            }
+        )
+    return rows
+
+
+def _normalize_treatment_duration_assumptions(
+    raw_rows: list[dict[str, str]],
+    *,
+    allowed_scenario_names: tuple[str, ...],
+    scenario_name: str,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    active_keys: set[tuple[str, str, str]] = set()
+    for index, row in enumerate(raw_rows, start=2):
+        if _is_blank_row(row, TREATMENT_DURATION_HEADERS):
+            continue
+        _validate_optional_scenario_name(
+            row,
+            allowed_scenario_names,
+            "Treatment_Duration_Assumptions",
+            index,
+        )
+        module = _require_module(row, "Treatment_Duration_Assumptions", index)
+        segment_code = _require_nonempty(
+            row,
+            "segment_code",
+            "Treatment_Duration_Assumptions",
+            index,
+        )
+        if segment_code not in set(MODULE_TO_SEGMENTS[module]) | {"ALL"}:
+            raise ValueError(
+                "Treatment_Duration_Assumptions row "
+                f"{index} has unsupported segment_code {segment_code!r} for module {module!r}."
+            )
+        geography_code = _normalize_scope_value(row.get("geography_code", ""))
+        treatment_duration_months = _parse_positive_int(
+            row.get("treatment_duration_months", ""),
+            "treatment_duration_months",
+            "Treatment_Duration_Assumptions",
+            index,
+        )
+        active_flag = _parse_boolish(
+            row.get("active_flag", ""),
+            "active_flag",
+            "Treatment_Duration_Assumptions",
+            index,
+        )
+        key = (module, segment_code, geography_code)
+        if active_flag and key in active_keys:
+            raise ValueError(
+                "Treatment_Duration_Assumptions row "
+                f"{index} duplicates active scope {key!r}. Keep treatment duration rows unique by module, segment, and geography."
+            )
+        if active_flag:
+            active_keys.add(key)
+        rows.append(
+            {
+                "scenario_name": scenario_name,
+                "module": module,
+                "segment_code": segment_code,
+                "geography_code": geography_code,
+                "treatment_duration_months": str(treatment_duration_months),
                 "active_flag": _format_boolish(active_flag),
                 "notes": row.get("notes", "").strip(),
             }
@@ -1109,6 +1200,7 @@ def _write_assumption_outputs(
     scenario_controls_rows: list[dict[str, str]],
     launch_timing_rows: list[dict[str, str]],
     dosing_rows: list[dict[str, str]],
+    treatment_duration_rows: list[dict[str, str]],
     product_rows: list[dict[str, str]],
     yield_rows: list[dict[str, str]],
     packaging_rows: list[dict[str, str]],
@@ -1124,6 +1216,7 @@ def _write_assumption_outputs(
         "scenario_controls": output_dir / "scenario_controls.csv",
         "launch_timing": output_dir / "launch_timing.csv",
         "dosing_assumptions": output_dir / "dosing_assumptions.csv",
+        "treatment_duration_assumptions": output_dir / "treatment_duration_assumptions.csv",
         "product_parameters": output_dir / "product_parameters.csv",
         "yield_assumptions": output_dir / "yield_assumptions.csv",
         "packaging_and_vialing": output_dir / "packaging_and_vialing.csv",
@@ -1138,6 +1231,11 @@ def _write_assumption_outputs(
     _write_csv(file_paths["scenario_controls"], SCENARIO_CONTROLS_HEADERS, scenario_controls_rows)
     _write_csv(file_paths["launch_timing"], LAUNCH_TIMING_HEADERS, launch_timing_rows)
     _write_csv(file_paths["dosing_assumptions"], DOSING_HEADERS, dosing_rows)
+    _write_csv(
+        file_paths["treatment_duration_assumptions"],
+        TREATMENT_DURATION_HEADERS,
+        treatment_duration_rows,
+    )
     _write_csv(file_paths["product_parameters"], PRODUCT_HEADERS, product_rows)
     _write_csv(file_paths["yield_assumptions"], YIELD_HEADERS, yield_rows)
     _write_csv(file_paths["packaging_and_vialing"], PACKAGING_HEADERS, packaging_rows)
@@ -1174,12 +1272,14 @@ def _write_assumption_outputs(
         "scenario_name": context.scenario_name,
         "forecast_grain": context.forecast_grain,
         "forecast_frequency": context.forecast_frequency,
+        "demand_basis": context.demand_basis,
         "dose_basis_default": context.dose_basis_default,
         "generated_files": {name: str(path) for name, path in file_paths.items()},
         "row_counts": {
             "scenario_controls": len(scenario_controls_rows),
             "launch_timing": len(launch_timing_rows),
             "dosing_assumptions": len(dosing_rows),
+            "treatment_duration_assumptions": len(treatment_duration_rows),
             "product_parameters": len(product_rows),
             "yield_assumptions": len(yield_rows),
             "packaging_and_vialing": len(packaging_rows),
@@ -1188,6 +1288,7 @@ def _write_assumption_outputs(
             "trade_inventory_futurehooks": len(trade_rows),
         },
         "wired_into_current_engine": [
+            "Scenario_Controls.demand_basis and Treatment_Duration_Assumptions -> Phase 1 starts-based treated census build when demand_basis=patient_starts.",
             "Scenario_Controls.dose_basis_default -> model.dose_basis",
             "Dosing_Assumptions module rows -> module_settings.<module> fixed_dose_mg / weight_based_dose_mg_per_kg / average_patient_weight_kg / doses_per_patient_per_month",
             "Product_Parameters scenario_default + module_override -> fg_mg_per_unit resolution",

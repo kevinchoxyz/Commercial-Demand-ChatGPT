@@ -14,7 +14,7 @@ Use this precedence order for implementation decisions:
 5. temporary development defaults marked clearly as `PLACEHOLDER`
 
 ## Current Implemented Scope
-Build and maintain the accepted deterministic Phase 1 plus Phase 2 baseline only.
+Build and maintain the accepted deterministic Phase 1, Phase 2, and Phase 3 baseline only.
 
 Included:
 - repository scaffold
@@ -27,11 +27,12 @@ Included:
 - monthly patient-treated output tables
 - deterministic dose and unit cascade consuming Phase 1 normalized monthly outputs
 - deterministic outputs for doses, FG, SS, DP, and DS
+- deterministic trade / channel-fill layer consuming accepted Phase 2 outputs
+- deterministic outputs for patient FG demand, Sub-Layer 2 pull, and ex-factory FG demand
 - unit tests
 - example configs and sample input files
 
 Out of scope:
-- trade engine
 - production scheduler
 - inventory engine
 - financial engine
@@ -41,6 +42,8 @@ Out of scope:
 ## Core Architecture Rules
 - Commercial / brand `Patients Treated` forecast is the primary demand driver.
 - The authoritative Phase 1 upstream contract for Phase 2 is `monthlyized_output.csv`.
+- The authoritative Phase 2 upstream contract for Phase 3 is `phase2_deterministic_cascade.csv`.
+- Phase 3 must remain upstream-contract driven and agnostic to whether treated demand was derived from direct treated-census input or from a later cohort / starts-duration build.
 - Epidemiology is a validation / fallback layer only.
 - Engine grain must remain monthly across the full 240-month horizon.
 - Reporting rollups are downstream presentation logic, not a core calculation-grain change.

@@ -97,6 +97,7 @@ def test_phase1_acceptance_reconciles_authoritative_monthlyized_output_across_fo
 
     assert import_result.file_paths["monthlyized_output"].name == "monthlyized_output.csv"
     assert import_result.file_paths["monthlyized_output"].exists()
+    assert import_result.context.demand_basis == "treated_census"
 
     active_contract_key = (
         "commercial_forecast_module_level"
@@ -120,6 +121,7 @@ def test_phase1_acceptance_reconciles_authoritative_monthlyized_output_across_fo
         scenario_name=import_result.context.scenario_name,
         forecast_grain=forecast_grain,
         input_dir=output_dir,
+        demand_basis="treated_census",
     )
     run_result = run_phase1_scenario(scenario_path)
     runner_map = _runner_output_map(run_result)
@@ -247,3 +249,99 @@ def test_phase1_acceptance_real_scenario_loads_expected_geographies_and_full_hor
     assert len(result.calendar.months) == 240
     assert geography_codes == {"EU", "US"}
     assert not result.validation.has_errors
+
+
+def test_phase1_acceptance_patient_starts_mode_builds_authoritative_treated_census(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "patient_starts.xlsx"
+    output_dir = tmp_path / "curated_patient_starts"
+    treatment_duration_path = tmp_path / "treatment_duration_assumptions.csv"
+
+    build_commercial_forecast_template(workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain="segment_level",
+        forecast_frequency="monthly",
+        demand_basis="patient_starts",
+    )
+    treatment_duration_path.write_text(
+        "\n".join(
+            [
+                "scenario_name,geography_code,module,segment_code,treatment_duration_months,active_flag,notes",
+                "BASE_2029,ALL,AML,1L_fit,12,true,Approved base-case duration default.",
+                "BASE_2029,ALL,AML,1L_unfit,10,true,Approved base-case duration default.",
+                "BASE_2029,ALL,AML,RR,6,true,Approved base-case duration default.",
+                "BASE_2029,ALL,MDS,HR_MDS,12,true,Approved base-case duration default.",
+                "BASE_2029,ALL,MDS,LR_MDS,12,true,Approved base-case duration default.",
+                "BASE_2029,ALL,CML_Incident,CML_Incident,24,true,Approved base-case duration default.",
+                "BASE_2029,ALL,CML_Prevalent,CML_Prevalent,24,true,Approved base-case duration default.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    from _phase1_acceptance_support import clear_cells, set_cell
+
+    clear_cells(
+        workbook_path,
+        "CML_Prevalent_Assumptions",
+        (
+            "B2", "C2", "E2", "F2", "G2", "H2", "I2", "J2", "K2",
+            "B3", "C3", "E3", "F3", "G3", "H3", "I3", "J3", "K3",
+            "B4", "C4", "E4", "F4", "G4", "H4", "I4", "J4", "K4",
+        ),
+    )
+    clear_cells(
+        workbook_path,
+        "SegmentLevel_Forecast",
+        (
+            "B2", "C2", "D2", "E2", "G2", "H2",
+            "B3", "C3", "D3", "E3", "G3", "H3",
+            "B4", "C4", "D4", "E4", "G4", "H4",
+            "B5", "C5", "D5", "E5", "G5", "H5",
+        ),
+    )
+    set_cell(workbook_path, "SegmentLevel_Forecast", "B2", "US")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "C2", "AML")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "D2", "1L_fit")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "E2", 1)
+    set_cell(workbook_path, "SegmentLevel_Forecast", "G2", 10)
+    set_cell(workbook_path, "SegmentLevel_Forecast", "B3", "US")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "C3", "AML")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "D3", "1L_fit")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "E3", 2)
+    set_cell(workbook_path, "SegmentLevel_Forecast", "G3", 10)
+
+    import_result = import_commercial_forecast_workbook(
+        workbook_path,
+        output_dir=output_dir,
+        treatment_duration_path=treatment_duration_path,
+    )
+    monthlyized_rows = read_csv_rows(import_result.file_paths["monthlyized_output"])
+    monthlyized_map = _monthlyized_output_map(monthlyized_rows)
+
+    assert import_result.context.demand_basis == "patient_starts"
+    assert monthlyized_map[("BASE_2029", "US", "AML", "1L_fit", 1)] == pytest.approx(10.0)
+    assert monthlyized_map[("BASE_2029", "US", "AML", "1L_fit", 2)] == pytest.approx(20.0)
+    month_13 = next(
+        row
+        for row in monthlyized_rows
+        if row["module"] == "AML" and row["segment_code"] == "1L_fit" and row["month_index"] == "13"
+    )
+    assert month_13["patients_treated_monthly"] == "10"
+    assert month_13["continuing_patients"] == "10"
+    assert month_13["rolloff_patients"] == "10"
+    assert month_13["treatment_duration_months_used"] == "12"
+
+    scenario_path = write_import_backed_phase1_scenario(
+        tmp_path / "runner_patient_starts",
+        scenario_name=import_result.context.scenario_name,
+        forecast_grain="segment_level",
+        demand_basis="patient_starts",
+        input_dir=output_dir,
+    )
+    run_result = run_phase1_scenario(scenario_path)
+    runner_map = _runner_output_map(run_result)
+
+    assert not run_result.validation.has_errors
+    assert runner_map == pytest.approx(monthlyized_map)

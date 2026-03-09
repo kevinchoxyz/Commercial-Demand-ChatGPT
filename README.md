@@ -1,6 +1,6 @@
 # CBX-250 Commercial Planning Model
 
-This repository contains the accepted Phase 1 deterministic demand foundation plus the deterministic Phase 2 dose and unit cascade for the CBX-250 commercial planning model. Later-phase capabilities remain explicit placeholders.
+This repository contains the accepted Phase 1 deterministic demand foundation, the deterministic Phase 2 dose and unit cascade, and the deterministic Phase 3 trade / channel-fill layer for the CBX-250 commercial planning model. Later-phase capabilities remain explicit placeholders.
 
 ## Read These Files First
 - `docs/model_contract/model_contract_phase0.md`
@@ -12,10 +12,12 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 ## Current Scope
 - Accepted Phase 1 deterministic demand foundation
 - Deterministic Phase 2 dose and unit cascade
+- Deterministic Phase 3 trade / channel-fill layer
 - Monthly 240-month horizon
 - Config-driven setup
 - Demand logic for AML, MDS, CML Incident, and CML Prevalent
 - Phase 2 cascade outputs for doses, FG, SS, DP, and DS
+- Phase 3 trade outputs for patient FG demand, Sub-Layer 2 pull, and ex-factory FG demand
 - Configurable commercial forecast grain:
   - `module_level`
   - `segment_level`
@@ -28,6 +30,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 - `python -m pytest`
 - `python -m pytest tests/test_phase1_acceptance.py`
 - `python -m pytest tests/test_phase2_runner.py tests/test_phase2_acceptance.py`
+- `python -m pytest tests/test_phase3_runner.py tests/test_phase3_acceptance.py`
 - `python -m pytest tests/test_forecast_workflow.py`
 - `python -m pytest tests/test_assumptions_template.py tests/test_assumptions_import.py`
 - `python scripts/run_phase1.py --scenario config/scenarios/base_phase1.toml`
@@ -38,6 +41,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 - `python scripts/generate_model_assumptions_template.py`
 - `python scripts/assumptions_import.py --workbook templates/CBX250_Model_Assumptions_Template.xlsx`
 - `python scripts/run_phase2.py --scenario config/scenarios/base_phase2.toml`
+- `python scripts/run_phase3.py --scenario config/scenarios/base_phase3.toml`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029" --overwrite`
 
 ## Forecast Templates
@@ -49,6 +53,8 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 - `data/reference/aml_segment_mix_template.csv`
 - `data/reference/mds_segment_mix_template.csv`
 - `templates/README.md` explains:
+  - base-case default = annual `patient_starts`
+  - `patient_starts` is the preferred/default operating mode and `treated_census` is backward-compatible only
   - when to use monthly vs annual entry
   - when to use `module_level` vs `segment_level`
   - how annual-to-monthly monthlyization works
@@ -64,6 +70,8 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 
 ## Assumptions Workbook
 - Use `templates/CBX250_Model_Assumptions_Template.xlsx` as the business-facing assumptions entry point instead of hand-editing Phase 2 TOML files.
+- The seeded base case in `Scenario_Controls` is `forecast_frequency = annual` and `demand_basis = patient_starts`.
+- `patient_starts` is the preferred/default Phase 1 operating mode. `treated_census` remains supported for backward compatibility and special cases only.
 - Generate a fresh workbook with:
   - `python scripts/generate_model_assumptions_template.py`
 - Import a completed assumptions workbook with:
@@ -100,10 +108,15 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
   - `Yield_Assumptions` module overrides for `ds_overage_factor`
   - `dp_concentration_mg_per_ml`
   - `dp_fill_volume_ml`
+- Current Phase 3 note:
+  - `Trade_Inventory_FutureHooks` remains normalized only. The active deterministic Phase 3 trade layer still reads its approved parameters from `config/parameters/phase3_trade_layer.toml` rather than from the assumptions workbook.
 
 ## One-Command Workflow
 - Run the end-to-end import plus deterministic cascade from the repo root with:
   - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029"`
+- Preferred base-case path:
+  - provide an annual commercial forecast workbook plus an assumptions workbook with `demand_basis = patient_starts`
+  - the workflow will convert starts into authoritative monthly treated census before Phase 2
 - To use the business-facing assumptions workbook in the same command, run:
   - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline"`
 - If `--scenario-name` is omitted, the wrapper derives a safe default from the workbook filename.
@@ -119,6 +132,9 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
   - creates a generated Phase 2 scenario pointing to that CSV
   - runs the existing deterministic Phase 2 cascade
   - writes the final deterministic cascade CSV
+- Current boundary:
+  - the one-command workflow currently stops at authoritative Phase 2 output
+  - run `scripts/run_phase3.py` separately to derive the deterministic trade layer from `phase2_deterministic_cascade.csv`
 - Precedence:
   - if `--assumptions-workbook` is provided, its generated Phase 2 scenario/config becomes the active Phase 2 parameter source
   - if both `--assumptions-workbook` and `--phase2-scenario` are provided, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase2-scenario` was ignored
@@ -190,11 +206,80 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
   - `ds_required_g` = `ds_required_mg / 1000`
   - `ds_required_kg` = `ds_required_mg / 1000000`
 
+## Phase 3 Deterministic Trade Layer
+- Phase 3 consumes the accepted Phase 2 deterministic cascade only: `phase2_deterministic_cascade.csv`.
+- Phase 3 does not read raw commercial workbooks or Phase 1 files directly.
+- Phase 3 is intentionally agnostic to how upstream treated demand was produced. It consumes the stable accepted Phase 2 contract only, whether Phase 1/2 treated demand originated from direct treated-census input or from a later starts-plus-duration cohort derivation.
+- Time Series 1 = `patient_fg_demand_units`
+- Time Series 2 = `sublayer2_pull_units`
+- Time Series 3 = `ex_factory_fg_demand_units`
+- The current deterministic trade layer implements:
+  - two sub-layers: wholesaler/distributor and hospital pharmacy aggregate
+  - Sub-Layer 2 ongoing target weeks on hand
+  - Sub-Layer 1 ongoing target weeks on hand
+  - new-site stocking at `6` FG units per new site
+  - matched SS site stocking at the same quantity
+  - launch-fill distribution over configurable weeks
+  - deterministic site activation by geography
+  - bullwhip amplification and flagging
+  - a narrow deterministic January softening hook
+- The current Phase 3 config lives in:
+  - `config/scenarios/base_phase3.toml`
+  - `config/parameters/phase3_trade_layer.toml`
+- Current base-case config values that are locked vs placeholder:
+  - locked: `initial_stocking_units_per_new_site = 6`, `ss_units_per_new_site = 6`, `bullwhip_flag_threshold = 0.25`
+  - clearly labeled placeholder sample values pending business approval: target weeks on hand midpoints, site activation rates, certified site counts, launch-fill months of demand, and January-softening default settings
+- Shared trade adjustments operate at `scenario x geography x module x month` and are allocated back to segment rows using the nearest available patient FG demand shares so Phase 3 preserves stable downstream grain at `scenario x geography x module x segment x month`.
+
+## Phase 3 Outputs
+- `config/scenarios/base_phase3.toml` is the sample Phase 3 scenario.
+- `config/parameters/phase3_trade_layer.toml` contains the deterministic trade parameters.
+- The authoritative Phase 3 output table is the trade-layer CSV written by the scenario config under `[outputs].deterministic_trade_layer`.
+- The sample output path is `data/outputs/base_phase3_trade_layer.csv` when you run `scripts/run_phase3.py`.
+- Output grain remains `scenario x geography x module x segment x month`.
+- The Phase 3 CSV includes at least:
+  - `patient_fg_demand_units`
+  - `sublayer2_wastage_units`
+  - `sublayer2_inventory_target_units`
+  - `sublayer2_inventory_adjustment_units`
+  - `new_site_stocking_orders_units`
+  - `ss_site_stocking_units`
+  - `sublayer2_pull_units`
+  - `sublayer1_inventory_target_units`
+  - `sublayer1_inventory_adjustment_units`
+  - `ex_factory_fg_demand_units`
+  - `bullwhip_amplification_factor`
+  - `bullwhip_flag`
+  - `launch_fill_component_units`
+  - `ongoing_replenishment_component_units`
+  - `active_certified_sites`
+  - `new_certified_sites`
+  - `sublayer2_inventory_on_hand_end_units`
+  - `sublayer1_inventory_on_hand_end_units`
+
 ## Acceptance Tests
 - Run the business acceptance layer with `python -m pytest tests/test_phase1_acceptance.py`.
 - Run the Phase 2 business acceptance layer with `python -m pytest tests/test_phase2_runner.py tests/test_phase2_acceptance.py`.
-- The acceptance suite validates workbook import reconciliation for all `forecast_grain x forecast_frequency` combinations, authoritative `monthlyized_output.csv` generation, runner consistency against normalized monthly outputs, calendar horizon coverage, output-key uniqueness, actionable validation context, and the current Phase 1 CML prevalent guardrails.
+- Run the Phase 3 business acceptance layer with `python -m pytest tests/test_phase3_runner.py tests/test_phase3_acceptance.py`.
+- The acceptance suite validates workbook import reconciliation for all `forecast_grain x forecast_frequency` combinations, both `demand_basis` modes, authoritative `monthlyized_output.csv` generation, runner consistency against normalized monthly outputs, calendar horizon coverage, output-key uniqueness, actionable validation context, and the current Phase 1 CML prevalent guardrails.
+
+## Phase 1 Demand Basis
+- Supported modes:
+  - `patient_starts`
+  - `treated_census`
+- Preferred/default operating mode:
+  - `patient_starts`
+- Base-case commercial input:
+  - annual patient starts
+- `patient_starts` mode uses treatment duration assumptions to convert starts into authoritative monthly treated census.
+- `treated_census` mode preserves direct treated-patient inputs and must not apply treatment duration again.
+- Default locations where the repo now seeds `patient_starts`:
+  - `config/parameters/phase1_demand_parameters.toml` with `model.demand_basis = "patient_starts"`
+  - `src/cbx250_model/inputs/config_schema.py` fallback default when `model.demand_basis` is omitted
+  - `templates/CBX250_Commercial_Forecast_Template.xlsx` `Inputs!B5`
+  - `templates/CBX250_Model_Assumptions_Template.xlsx` `Scenario_Controls!F2`
 - The Phase 2 acceptance suite validates the deterministic cascade from accepted `monthlyized_output.csv` into doses, FG, SS, DP, and DS without bypassing the Phase 1 normalized contract, including the approved base-case `0.15 mg` fixed dose, `0.0023 mg/kg x 80 kg` weight-based default, module-specific monthly dosing cadence, `1.0 mg` FG units, and ceiling vialing.
+- The Phase 3 acceptance suite validates the deterministic trade layer from accepted `phase2_deterministic_cascade.csv` into patient FG demand, Sub-Layer 2 pull, and ex-factory FG demand, including the 6-unit site stocking rule, matched SS site stocking, bullwhip flagging, January softening behavior, and CML prevalent channel drawdown behavior.
 
 ## CML Prevalent Phase 1 Limitation
 - `CML_Prevalent` remains a separate module.
@@ -203,8 +288,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 - `exhaustion_rule` is captured and audited, but Phase 1 does not implement a full dynamic depletion or remainder engine.
 - Current Phase 1 behavior relies only on supplied annual totals, `launch_month_index`, `duration_months`, and profile logic. Fuller depletion mechanics are deferred.
 
-## Deferred Beyond Phase 2
-- trade
+## Deferred Beyond Phase 3
 - production scheduling
 - inventory
 - financials

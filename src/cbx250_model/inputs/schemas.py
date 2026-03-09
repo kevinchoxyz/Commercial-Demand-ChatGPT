@@ -34,6 +34,15 @@ def _parse_nonnegative_float(value: str, field_name: str) -> float:
     return parsed
 
 
+def _parse_boolish(value: str, field_name: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"", "true", "yes", "1"}:
+        return normalized != ""
+    if normalized in {"false", "no", "0"}:
+        return False
+    raise ValueError(f"{field_name} must be a boolean-like value, received {value!r}.")
+
+
 @dataclass(frozen=True)
 class ModuleLevelForecastRecord:
     geography_code: str
@@ -148,4 +157,41 @@ class CMLPrevalentPoolRecord:
             addressable_prevalent_pool=_parse_nonnegative_float(
                 row["addressable_prevalent_pool"], "addressable_prevalent_pool"
             ),
+        )
+
+
+@dataclass(frozen=True)
+class TreatmentDurationRecord:
+    geography_code: str
+    module: str
+    segment_code: str
+    treatment_duration_months: int
+    active_flag: bool
+    notes: str
+
+    @classmethod
+    def from_row(cls, row: dict[str, str]) -> "TreatmentDurationRecord":
+        module = _require_nonempty(row["module"], "module")
+        if module not in PHASE1_MODULES:
+            raise ValueError(f"module must be one of {PHASE1_MODULES}, received {module!r}.")
+        segment_code = _require_nonempty(row["segment_code"], "segment_code")
+        allowed_segment_codes = set(MODULE_TO_SEGMENTS[module]) | {"ALL"}
+        if segment_code not in allowed_segment_codes:
+            raise ValueError(
+                f"segment_code {segment_code!r} is not valid for module {module!r}. "
+                f"Allowed values: {sorted(allowed_segment_codes)}."
+            )
+        geography_code = _require_nonempty(row["geography_code"], "geography_code")
+        if geography_code != "ALL":
+            geography_code = geography_code
+        return cls(
+            geography_code=geography_code,
+            module=module,
+            segment_code=segment_code,
+            treatment_duration_months=_parse_month_index(
+                row["treatment_duration_months"],
+                "treatment_duration_months",
+            ),
+            active_flag=_parse_boolish(row.get("active_flag", "true"), "active_flag"),
+            notes=row.get("notes", "").strip(),
         )

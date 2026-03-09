@@ -113,9 +113,11 @@ def configure_template_for_mode(
     *,
     forecast_grain: str,
     forecast_frequency: str,
+    demand_basis: str = "treated_census",
 ) -> None:
     set_cell(workbook_path, "Inputs", "B3", forecast_grain)
     set_cell(workbook_path, "Inputs", "B4", forecast_frequency)
+    set_cell(workbook_path, "Inputs", "B5", demand_basis)
 
     # Keep the seeded CML prevalent examples inside the current Phase 1 pool guardrails.
     set_cell(workbook_path, "CML_Prevalent_Assumptions", "E4", 2000)
@@ -173,6 +175,7 @@ def write_import_backed_phase1_scenario(
     scenario_name: str,
     forecast_grain: str,
     input_dir: Path,
+    demand_basis: str = "treated_census",
 ) -> Path:
     config_dir = tmp_path / "config"
     parameters_dir = config_dir / "parameters"
@@ -188,6 +191,7 @@ def write_import_backed_phase1_scenario(
                 'build_scope = "deterministic_demand_foundation"',
                 'primary_demand_input = "Commercial Patients Treated"',
                 f'forecast_grain = "{forecast_grain}"',
+                f'demand_basis = "{demand_basis}"',
                 "",
                 "[horizon]",
                 'us_aml_mds_initial_approval_date = "2029-01-01"',
@@ -221,6 +225,7 @@ def write_import_backed_phase1_scenario(
                 f'aml_segment_mix = "{(input_dir / "aml_segment_mix.csv").as_posix()}"',
                 f'mds_segment_mix = "{(input_dir / "mds_segment_mix.csv").as_posix()}"',
                 f'cml_prevalent = "{(input_dir / "inp_cml_prevalent.csv").as_posix()}"',
+                f'treatment_duration_assumptions = "{(input_dir / "treatment_duration_assumptions.csv").as_posix()}"',
             ]
         )
         + "\n",
@@ -233,11 +238,13 @@ def write_curated_phase1_scenario(
     tmp_path: Path,
     *,
     forecast_grain: str,
+    demand_basis: str = "treated_census",
     module_level_rows: list[str] | None = None,
     segment_level_rows: list[str] | None = None,
     aml_mix_rows: list[str] | None = None,
     mds_mix_rows: list[str] | None = None,
     cml_prevalent_rows: list[str] | None = None,
+    treatment_duration_rows: list[str] | None = None,
 ) -> Path:
     config_dir = tmp_path / "config"
     parameters_dir = config_dir / "parameters"
@@ -255,6 +262,7 @@ def write_curated_phase1_scenario(
                 'build_scope = "deterministic_demand_foundation"',
                 'primary_demand_input = "Commercial Patients Treated"',
                 f'forecast_grain = "{forecast_grain}"',
+                f'demand_basis = "{demand_basis}"',
                 "",
                 "[horizon]",
                 'us_aml_mds_initial_approval_date = "2029-01-01"',
@@ -288,6 +296,7 @@ def write_curated_phase1_scenario(
                 'aml_segment_mix = "../../data/aml_segment_mix.csv"',
                 'mds_segment_mix = "../../data/mds_segment_mix.csv"',
                 'cml_prevalent = "../../data/inp_cml_prevalent.csv"',
+                'treatment_duration_assumptions = "../../data/treatment_duration_assumptions.csv"',
             ]
         )
         + "\n",
@@ -343,6 +352,16 @@ def write_curated_phase1_scenario(
             [
                 "geography_code,month_index,addressable_prevalent_pool",
                 *(cml_prevalent_rows or []),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (data_dir / "treatment_duration_assumptions.csv").write_text(
+        "\n".join(
+            [
+                "scenario_name,geography_code,module,segment_code,treatment_duration_months,active_flag,notes",
+                *(treatment_duration_rows or []),
             ]
         )
         + "\n",

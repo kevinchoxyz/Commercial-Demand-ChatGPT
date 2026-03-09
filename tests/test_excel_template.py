@@ -78,13 +78,14 @@ def test_build_commercial_forecast_template_creates_expected_workbook(tmp_path: 
         "Lookup_Lists",
     ]
 
-    assert _row_values(output_path, sheet_map["Inputs"], 4)[:2] == ["forecast_frequency", "monthly"]
-    assert _row_values(output_path, sheet_map["Instructions"], 5) == [
+    assert _row_values(output_path, sheet_map["Inputs"], 4)[:2] == ["forecast_frequency", "annual"]
+    assert _row_values(output_path, sheet_map["Inputs"], 5)[:2] == ["demand_basis", "patient_starts"]
+    assert _row_values(output_path, sheet_map["Instructions"], 6) == [
         "Mix override rule",
         "Use month_index mix rows only when the within-year segment mix differs from the standard annual mix.",
         "If both are present, month_index rows override year_index rows for the same geography and month. CML modules stay separate and do not use AML/MDS mix logic.",
     ]
-    assert _row_values(output_path, sheet_map["Instructions"], 7) == [
+    assert _row_values(output_path, sheet_map["Instructions"], 8) == [
         "CML_Prevalent precedence",
         "If explicit CML_Prevalent forecast rows exist in the active forecast tab, they are the primary demand input.",
         "CML_Prevalent_Assumptions is optional for explicit demand import. If provided, it generates the validation pool; if explicit CML_Prevalent rows are missing, the assumptions sheet can generate a fallback monthly series.",
@@ -151,16 +152,27 @@ def test_build_commercial_forecast_template_creates_expected_workbook(tmp_path: 
         "source_grain",
         "source_sheet",
         "profile_id_used",
+        "demand_basis_used",
+        "starts_input",
+        "continuing_patients",
+        "rolloff_patients",
+        "treatment_duration_months_used",
         "notes",
     ]
     assert _row_values(output_path, sheet_map["Monthlyized_Output"], 2)[9:] == [
         "CSV export is authoritative",
         "",
+        "patient_starts",
+        "",
+        "",
+        "",
+        "",
         "Reference tab only in Phase 1 unless a future exporter populates it. The authoritative normalized workbook export is monthlyized_output.csv written by the importer.",
     ]
     assert _row_values(output_path, sheet_map["Lookup_Lists"], 2) == [
         "module_level",
-        "monthly",
+        "annual",
+        "patient_starts",
         "AML",
         "FLAT_12",
         "FLAT_12",
@@ -173,7 +185,7 @@ def test_build_commercial_forecast_template_creates_expected_workbook(tmp_path: 
     ]
 
     assert _cell_formula(output_path, sheet_map["ModuleLevel_Forecast"], "E2") == (
-        'IF(OR($D2="",Inputs!$B$5=""),"",EDATE(Inputs!$B$5,$D2-1))'
+        'IF(OR($D2="",Inputs!$B$6=""),"",EDATE(Inputs!$B$6,$D2-1))'
     )
     assert _cell_formula(output_path, sheet_map["Annual_to_Monthly_Profiles"], "R2") == (
         'IF(COUNTA(A2:Q2)=0,"",ROUND(SUM(F2:Q2),6))'

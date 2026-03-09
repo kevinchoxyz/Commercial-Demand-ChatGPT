@@ -17,6 +17,7 @@ def build_run_summary(result: "Phase1RunResult") -> dict[str, object]:
     return {
         "scenario_name": result.config.scenario_name,
         "forecast_grain": result.config.model.forecast_grain,
+        "demand_basis": result.config.model.demand_basis,
         "calendar_months": len(result.calendar.months),
         "geography_count": len(result.dimensions["dim_geography"]),
         "dimension_counts": {name: len(rows) for name, rows in result.dimensions.items()},

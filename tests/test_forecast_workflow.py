@@ -37,6 +37,7 @@ def test_forecast_workflow_happy_path_runs_import_and_phase2(tmp_path: Path) -> 
     assert result.summary["scenario_name"] == "REAL_2029"
     assert result.summary["forecast_grain"] == "module_level"
     assert result.summary["forecast_frequency"] == "monthly"
+    assert result.summary["demand_basis"] == "treated_census"
     assert result.summary["output_row_count"] > 0
     assert result.summary["validation_issue_count"] == 0
     assert result.summary["assumptions_workbook_used"] is False
@@ -77,6 +78,7 @@ def test_forecast_workflow_fails_if_import_does_not_create_monthlyized_output(
             scenario_name="BROKEN_IMPORT",
             forecast_grain="module_level",
             forecast_frequency="monthly",
+            demand_basis="treated_census",
             us_aml_mds_initial_approval_date=date(2029, 1, 1),
             real_geography_list_confirmed=True,
         ),
@@ -90,7 +92,13 @@ def test_forecast_workflow_fails_if_import_does_not_create_monthlyized_output(
         warnings=(),
     )
 
-    def fake_import(*, workbook_path: Path, output_dir: Path, scenario_name_override: str | None) -> WorkbookImportResult:
+    def fake_import(
+        *,
+        workbook_path: Path,
+        output_dir: Path,
+        scenario_name_override: str | None,
+        treatment_duration_path: Path | None,
+    ) -> WorkbookImportResult:
         return fake_result
 
     monkeypatch.setattr("cbx250_model.workflow.import_commercial_forecast_workbook", fake_import)
@@ -140,6 +148,7 @@ def test_forecast_workflow_happy_path_uses_assumptions_workbook_as_phase2_source
         forecast_grain="module_level",
         forecast_frequency="monthly",
     )
+    set_cell(assumptions_workbook_path, "Scenario_Controls", "F2", "treated_census")
 
     result = run_forecast_workflow(
         workbook_path=workbook_path,
@@ -154,6 +163,9 @@ def test_forecast_workflow_happy_path_uses_assumptions_workbook_as_phase2_source
     assert result.summary["phase2_parameter_source"] == "assumptions_workbook"
     assert result.summary["assumptions_artifacts"]["generated_phase2_parameters"].endswith(
         "generated_phase2_parameters.toml"
+    )
+    assert result.summary["assumptions_artifacts"]["treatment_duration_assumptions"].endswith(
+        "treatment_duration_assumptions.csv"
     )
     assert result.phase2_output_path.exists()
 
@@ -170,6 +182,7 @@ def test_forecast_workflow_generated_phase2_scenario_uses_assumptions_generated_
         forecast_grain="segment_level",
         forecast_frequency="monthly",
     )
+    set_cell(assumptions_workbook_path, "Scenario_Controls", "F2", "treated_census")
 
     result = run_forecast_workflow(
         workbook_path=workbook_path,
@@ -199,6 +212,7 @@ def test_forecast_workflow_assumptions_workbook_wins_over_phase2_scenario_with_w
         forecast_grain="module_level",
         forecast_frequency="monthly",
     )
+    set_cell(assumptions_workbook_path, "Scenario_Controls", "F2", "treated_census")
 
     result = run_forecast_workflow(
         workbook_path=workbook_path,
@@ -246,3 +260,67 @@ def test_forecast_workflow_summary_reflects_no_sharing_fg_and_ss_totals(tmp_path
     assert result.summary["total_patients_treated"] == pytest.approx(18.0)
     assert result.summary["total_fg_units_required"] == pytest.approx(18.0)
     assert result.summary["total_ss_units_required"] == pytest.approx(18.0)
+
+
+def test_forecast_workflow_patient_starts_uses_assumptions_duration_artifact(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "patient_starts_forecast.xlsx"
+    assumptions_workbook_path = tmp_path / "patient_starts_assumptions.xlsx"
+    build_commercial_forecast_template(workbook_path)
+    build_model_assumptions_template(assumptions_workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain="segment_level",
+        forecast_frequency="monthly",
+        demand_basis="patient_starts",
+    )
+    set_cell(assumptions_workbook_path, "Scenario_Controls", "F2", "patient_starts")
+    clear_cells(
+        workbook_path,
+        "SegmentLevel_Forecast",
+        (
+            "B2", "C2", "D2", "E2", "G2", "H2",
+            "B3", "C3", "D3", "E3", "G3", "H3",
+            "B4", "C4", "D4", "E4", "G4", "H4",
+            "B5", "C5", "D5", "E5", "G5", "H5",
+        ),
+    )
+    set_cell(workbook_path, "SegmentLevel_Forecast", "B2", "US")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "C2", "AML")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "D2", "1L_fit")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "E2", 1)
+    set_cell(workbook_path, "SegmentLevel_Forecast", "G2", 10)
+    set_cell(workbook_path, "SegmentLevel_Forecast", "B3", "US")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "C3", "AML")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "D3", "1L_fit")
+    set_cell(workbook_path, "SegmentLevel_Forecast", "E3", 2)
+    set_cell(workbook_path, "SegmentLevel_Forecast", "G3", 10)
+
+    result = run_forecast_workflow(
+        workbook_path=workbook_path,
+        assumptions_workbook=assumptions_workbook_path,
+        scenario_name="PATIENT_STARTS_2029",
+        output_dir=tmp_path / "workflow_output",
+    )
+
+    assert result.summary["demand_basis"] == "patient_starts"
+    assert result.summary["assumptions_workbook_used"] is True
+    assert result.import_result.file_paths["treatment_duration_assumptions"].exists()
+
+
+def test_forecast_workflow_fails_if_assumptions_and_forecast_demand_basis_conflict(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "treated_forecast.xlsx"
+    assumptions_workbook_path = tmp_path / "starts_assumptions.xlsx"
+    build_commercial_forecast_template(workbook_path)
+    build_model_assumptions_template(assumptions_workbook_path)
+    set_cell(workbook_path, "Inputs", "B5", "treated_census")
+    set_cell(assumptions_workbook_path, "Scenario_Controls", "F2", "patient_starts")
+
+    with pytest.raises(ValueError, match="does not match forecast workbook demand_basis"):
+        run_forecast_workflow(
+            workbook_path=workbook_path,
+            assumptions_workbook=assumptions_workbook_path,
+            scenario_name="CONFLICT_2029",
+            output_dir=tmp_path / "workflow_output",
+        )

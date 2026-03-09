@@ -8,4 +8,4 @@ epi_crosscheck = "../../data/curated/real_scenario_01/inp_epi_crosscheck.csv"
 aml_segment_mix = "../../data/curated/real_scenario_01/aml_segment_mix.csv"
 mds_segment_mix = "../../data/curated/real_scenario_01/mds_segment_mix.csv"
 cml_prevalent = "../../data/curated/real_scenario_01/inp_cml_prevalent.csv"
-
+treatment_duration_assumptions = "../../data/reference/treatment_duration_assumptions_template.csv"

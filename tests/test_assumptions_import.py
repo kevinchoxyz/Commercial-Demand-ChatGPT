@@ -101,10 +101,13 @@ def test_import_model_assumptions_workbook_happy_path_generates_artifacts_and_ph
     result = import_model_assumptions_workbook(workbook_path, output_dir=output_dir)
 
     assert result.context.scenario_name == "BASE_2029"
+    assert result.context.demand_basis == "patient_starts"
     assert result.context.dose_basis_default == "fixed"
     assert result.row_counts["dosing_assumptions"] == 4
+    assert result.row_counts["treatment_duration_assumptions"] == 7
     assert result.file_paths["generated_phase2_parameters"].exists()
     assert result.file_paths["generated_phase2_scenario"].exists()
+    assert result.file_paths["treatment_duration_assumptions"].exists()
 
     config = load_phase2_config(result.file_paths["generated_phase2_scenario"])
     assert config.model.dose_basis == "fixed"
@@ -116,6 +119,7 @@ def test_import_model_assumptions_workbook_happy_path_generates_artifacts_and_ph
     assert config.ss.ratio_to_fg == 1.0
 
     summary = json.loads(result.file_paths["import_summary"].read_text(encoding="utf-8"))
+    assert "Scenario_Controls.demand_basis and Treatment_Duration_Assumptions -> Phase 1 starts-based treated census build when demand_basis=patient_starts." in summary["wired_into_current_engine"]
     assert "Product_Parameters scenario_default + module_override -> fg_mg_per_unit resolution" in summary["wired_into_current_engine"]
     assert "Trade_Inventory_FutureHooks normalized only; future-phase placeholder." in summary["future_ready_only"]
 
@@ -126,7 +130,7 @@ def test_import_model_assumptions_workbook_missing_required_field_fails_with_con
     workbook_path = tmp_path / "CBX250_Model_Assumptions_Template.xlsx"
 
     build_model_assumptions_template(workbook_path)
-    _set_cell(workbook_path, "Scenario_Controls", "F2", "")
+    _set_cell(workbook_path, "Scenario_Controls", "G2", "")
 
     with pytest.raises(ValueError, match="Scenario_Controls row 2 is missing required value for 'dose_basis_default'"):
         import_model_assumptions_workbook(workbook_path)
@@ -213,3 +217,40 @@ def test_import_model_assumptions_workbook_preserves_ds_overage_module_override_
     snapshot = json.loads(result.file_paths["resolved_phase2_snapshot"].read_text(encoding="utf-8"))
     assert snapshot["resolved_phase2"]["ds"]["overage_factor"] == 0.05
     assert any("ds_overage_factor rows are preserved in normalized artifacts" in warning for warning in snapshot["warnings"])
+
+
+def test_import_model_assumptions_workbook_writes_treatment_duration_artifact_for_patient_starts(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Model_Assumptions_Template.xlsx"
+    output_dir = tmp_path / "assumptions"
+
+    build_model_assumptions_template(workbook_path)
+    _set_cell(workbook_path, "Scenario_Controls", "F2", "patient_starts")
+
+    result = import_model_assumptions_workbook(workbook_path, output_dir=output_dir)
+
+    duration_rows = _read_csv(result.file_paths["treatment_duration_assumptions"])
+    assert result.context.demand_basis == "patient_starts"
+    assert _find_row(
+        duration_rows,
+        module="AML",
+        segment_code="1L_fit",
+        geography_code="ALL",
+    )["treatment_duration_months"] == "12"
+
+
+def test_import_model_assumptions_workbook_duplicate_treatment_duration_scope_fails(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Model_Assumptions_Template.xlsx"
+
+    build_model_assumptions_template(workbook_path)
+    _set_cell(workbook_path, "Treatment_Duration_Assumptions", "B9", "AML")
+    _set_cell(workbook_path, "Treatment_Duration_Assumptions", "C9", "1L_fit")
+    _set_cell(workbook_path, "Treatment_Duration_Assumptions", "D9", "ALL")
+    _set_cell(workbook_path, "Treatment_Duration_Assumptions", "E9", 12)
+    _set_cell(workbook_path, "Treatment_Duration_Assumptions", "F9", "yes")
+
+    with pytest.raises(ValueError, match="duplicates active scope"):
+        import_model_assumptions_workbook(workbook_path)

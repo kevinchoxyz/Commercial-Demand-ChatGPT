@@ -54,7 +54,7 @@ CML v1 rule:
 10. Board and executive outputs
 
 Current repo implementation boundary:
-- build steps 1 to 4
+- build steps 1 to 5
 - keep later steps as placeholders
 
 ## 3. Phase 1-Relevant Parameter Map
@@ -91,6 +91,22 @@ Current repo implementation boundary:
 - `cml_prevalent_launch_month`
 - `cml_prevalent_exhaustion_rule`
 
+### 3.6 Trade Layer
+- `sublayer1_target_weeks_on_hand`
+- `sublayer2_target_weeks_on_hand`
+- `sublayer2_wastage_rate`
+- `initial_stocking_units_per_new_site`
+- `ss_units_per_new_site`
+- `sublayer1_launch_fill_months_of_demand`
+- `site_activation_rate`
+- `certified_sites_at_launch`
+- `certified_sites_at_peak`
+- `rems_certification_lag_weeks`
+- `january_softening_factor`
+- `bullwhip_flag_threshold`
+- `channel_fill_start_prelaunch_weeks`
+- `sublayer2_fill_distribution_weeks`
+
 ## 4. Phase 1 Core Data Model
 
 ### 4.1 Dimensions
@@ -110,6 +126,16 @@ Current repo implementation boundary:
 
 ### 4.3 Phase 1 Output Contract
 - monthly patient-treated output at `scenario x geography x module x segment x month`
+
+### 4.4 Phase 2 Output Contract
+- deterministic dose and unit cascade output at `scenario x geography x module x segment x month`
+
+### 4.5 Phase 3 Output Contract
+- deterministic trade-layer FG output at `scenario x geography x module x segment x month`
+- required time series:
+  - patient FG demand
+  - Sub-Layer 2 pull
+  - ex-factory FG demand
 
 ## 5. Validation Rules
 
@@ -131,12 +157,12 @@ Current repo implementation boundary:
 - calendar engine
 - demand-module skeletons for AML, MDS, CML Incident, CML Prevalent
 - deterministic dose and unit cascade consuming normalized monthly patient outputs
+- deterministic trade layer consuming accepted Phase 2 FG outputs
 - validation framework
 - unit tests
 - example configs and sample input files
 
 ## 7. Explicitly Out Of Scope For The First Pass
-- trade logic
 - production scheduling
 - inventory balance logic
 - financials

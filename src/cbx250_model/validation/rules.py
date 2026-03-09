@@ -7,9 +7,12 @@ from collections import defaultdict
 from ..calendar.monthly_calendar import MonthlyCalendar
 from ..constants import (
     AML_SEGMENTS,
+    DEMAND_BASIS_PATIENT_STARTS,
+    DEMAND_BASIS_TREATED_CENSUS,
     FORECAST_GRAIN_MODULE_LEVEL,
     MDS_SEGMENTS,
 )
+from ..demand.cohort_engine import resolve_treatment_duration_months
 from ..demand.base import DemandOutputRecord
 from ..inputs.config_schema import Phase1Config
 from ..inputs.loaders import InputBundle
@@ -18,6 +21,7 @@ from ..inputs.schemas import (
     ModuleLevelForecastRecord,
     SegmentLevelForecastRecord,
     SegmentMixRecord,
+    TreatmentDurationRecord,
 )
 from .framework import ValidationIssue, ValidationReport
 
@@ -197,22 +201,20 @@ def validate_segment_level_forecast_contract(
     return issues
 
 
-def validate_cml_prevalent_pool(config: Phase1Config, inputs: InputBundle) -> list[ValidationIssue]:
+def validate_cml_prevalent_pool(
+    config: Phase1Config,
+    inputs: InputBundle,
+    outputs: tuple[DemandOutputRecord, ...],
+) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     pool_map: dict[tuple[str, int], CMLPrevalentPoolRecord] = {
         (record.geography_code, record.month_index): record for record in inputs.cml_prevalent
     }
     treated_map: dict[tuple[str, int], float] = defaultdict(float)
-    if config.model.forecast_grain == FORECAST_GRAIN_MODULE_LEVEL:
-        for record in inputs.module_level_forecast:
-            if record.module != "CML_Prevalent":
-                continue
-            treated_map[(record.geography_code, record.month_index)] += record.patients_treated
-    else:
-        for record in inputs.segment_level_forecast:
-            if record.module != "CML_Prevalent":
-                continue
-            treated_map[(record.geography_code, record.month_index)] += record.patients_treated
+    for record in outputs:
+        if record.module != "CML_Prevalent":
+            continue
+        treated_map[(record.geography_code, record.month_index)] += record.patients_treated
 
     for key, treated_patients in treated_map.items():
         geography_code, month_index = key
@@ -245,6 +247,148 @@ def validate_cml_prevalent_pool(config: Phase1Config, inputs: InputBundle) -> li
                         "CML_Prevalent",
                         month_index,
                     ),
+                )
+            )
+    return issues
+
+
+def validate_treatment_duration_contract(
+    records: tuple[TreatmentDurationRecord, ...],
+    scenario_name: str,
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    seen_active_scopes: set[tuple[str, str, str]] = set()
+    for record in records:
+        if record.treatment_duration_months <= 0:
+            issues.append(
+                ValidationIssue(
+                    code="treatment_duration.non_positive",
+                    message="Treatment duration must be > 0 months.",
+                    context={
+                        "scenario_name": scenario_name,
+                        "geography_code": record.geography_code,
+                        "module": record.module,
+                        "segment_code": record.segment_code,
+                    },
+                )
+            )
+        if not record.active_flag:
+            continue
+        key = (record.geography_code, record.module, record.segment_code)
+        if key in seen_active_scopes:
+            issues.append(
+                ValidationIssue(
+                    code="treatment_duration.duplicate_active_scope",
+                    message="Treatment duration assumptions contain duplicate active scope rows.",
+                    context={
+                        "scenario_name": scenario_name,
+                        "geography_code": record.geography_code,
+                        "module": record.module,
+                        "segment_code": record.segment_code,
+                    },
+                )
+            )
+            continue
+        seen_active_scopes.add(key)
+    return issues
+
+
+def validate_demand_basis_audit(
+    config: Phase1Config,
+    inputs: InputBundle,
+    outputs: tuple[DemandOutputRecord, ...],
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    if config.model.demand_basis == DEMAND_BASIS_TREATED_CENSUS:
+        for output in outputs:
+            if output.demand_basis_used != DEMAND_BASIS_TREATED_CENSUS:
+                issues.append(
+                    ValidationIssue(
+                        code="outputs.unexpected_demand_basis",
+                        message="treated_census mode must not apply cohort roll-forward audit fields.",
+                        context={
+                            "scenario_name": output.scenario_name,
+                            "geography_code": output.geography_code,
+                            "module": output.module,
+                            "segment_code": output.segment_code,
+                            "month_index": str(output.month_index),
+                        },
+                    )
+                )
+                continue
+            if (
+                abs(output.starts_input) > 1e-9
+                or abs(output.continuing_patients) > 1e-9
+                or abs(output.rolloff_patients) > 1e-9
+                or output.treatment_duration_months_used is not None
+            ):
+                issues.append(
+                    ValidationIssue(
+                        code="outputs.unexpected_cohort_audit",
+                        message="treated_census mode must not populate cohort audit fields.",
+                        context={
+                            "scenario_name": output.scenario_name,
+                            "geography_code": output.geography_code,
+                            "module": output.module,
+                            "segment_code": output.segment_code,
+                            "month_index": str(output.month_index),
+                        },
+                    )
+                )
+        return issues
+
+    for output in outputs:
+        try:
+            expected_duration = resolve_treatment_duration_months(
+                records=inputs.treatment_duration_assumptions,
+                geography_code=output.geography_code,
+                module=output.module,
+                segment_code=output.segment_code,
+            )
+        except ValueError as exc:
+            issues.append(
+                ValidationIssue(
+                    code="treatment_duration.missing_required_scope",
+                    message=str(exc),
+                    context={
+                        "scenario_name": output.scenario_name,
+                        "geography_code": output.geography_code,
+                        "module": output.module,
+                        "segment_code": output.segment_code,
+                        "month_index": str(output.month_index),
+                    },
+                )
+            )
+            continue
+        if output.demand_basis_used != DEMAND_BASIS_PATIENT_STARTS:
+            issues.append(
+                ValidationIssue(
+                    code="outputs.missing_patient_starts_audit",
+                    message="patient_starts mode must annotate outputs with demand_basis_used=patient_starts.",
+                    context={
+                        "scenario_name": output.scenario_name,
+                        "geography_code": output.geography_code,
+                        "module": output.module,
+                        "segment_code": output.segment_code,
+                        "month_index": str(output.month_index),
+                    },
+                )
+            )
+        if output.treatment_duration_months_used != expected_duration:
+            issues.append(
+                ValidationIssue(
+                    code="outputs.duration_mismatch",
+                    message=(
+                        "Output treatment duration audit does not match the configured duration "
+                        f"({output.treatment_duration_months_used} != {expected_duration})."
+                    ),
+                    context={
+                        "scenario_name": output.scenario_name,
+                        "geography_code": output.geography_code,
+                        "module": output.module,
+                        "segment_code": output.segment_code,
+                        "month_index": str(output.month_index),
+                    },
                 )
             )
     return issues
@@ -354,6 +498,12 @@ def run_phase1_validations(
     report = ValidationReport()
     report = report.extend(validate_calendar_horizon(calendar, config.horizon.forecast_horizon_months))
     report = report.extend(validate_unique_output_keys(outputs))
+    report = report.extend(
+        validate_treatment_duration_contract(
+            inputs.treatment_duration_assumptions,
+            config.scenario_name,
+        )
+    )
     report = report.extend(validate_mix_month_indices(inputs.aml_segment_mix, config.scenario_name, calendar, "AML"))
     report = report.extend(validate_mix_month_indices(inputs.mds_segment_mix, config.scenario_name, calendar, "MDS"))
     report = report.extend(validate_cml_prevalent_month_indices(inputs.cml_prevalent, config.scenario_name, calendar))
@@ -426,6 +576,8 @@ def run_phase1_validations(
         )
 
     if config.validation.enforce_cml_prevalent_pool_constraints:
-        report = report.extend(validate_cml_prevalent_pool(config, inputs))
+        report = report.extend(validate_cml_prevalent_pool(config, inputs, outputs))
+
+    report = report.extend(validate_demand_basis_audit(config, inputs, outputs))
 
     return report

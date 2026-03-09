@@ -56,6 +56,7 @@ def main() -> int:
                 "scenario_name": result.context.scenario_name,
                 "forecast_grain": result.context.forecast_grain,
                 "forecast_frequency": result.context.forecast_frequency,
+                "demand_basis": result.context.demand_basis,
                 "dose_basis_default": result.context.dose_basis_default,
                 "row_counts": result.row_counts,
                 "warnings": list(result.warnings),

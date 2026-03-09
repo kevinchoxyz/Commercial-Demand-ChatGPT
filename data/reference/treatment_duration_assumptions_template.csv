@@ -1,0 +1,8 @@
+scenario_name,geography_code,module,segment_code,treatment_duration_months,active_flag,notes
+BASE_TEMPLATE_ONLY,ALL,AML,1L_fit,12,true,Approved base-case duration default.
+BASE_TEMPLATE_ONLY,ALL,AML,1L_unfit,10,true,Approved base-case duration default.
+BASE_TEMPLATE_ONLY,ALL,AML,RR,6,true,Approved base-case duration default.
+BASE_TEMPLATE_ONLY,ALL,MDS,HR_MDS,12,true,Approved base-case duration default.
+BASE_TEMPLATE_ONLY,ALL,MDS,LR_MDS,12,true,Approved base-case duration default.
+BASE_TEMPLATE_ONLY,ALL,CML_Incident,CML_Incident,24,true,Approved base-case duration default.
+BASE_TEMPLATE_ONLY,ALL,CML_Prevalent,CML_Prevalent,24,true,Approved base-case duration default.

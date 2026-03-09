@@ -32,6 +32,7 @@ from .excel_template import (
 SCENARIO_CONTROL_TEMPLATE_ROWS = 10
 LAUNCH_TIMING_TEMPLATE_ROWS = 40
 DOSING_TEMPLATE_ROWS = 80
+TREATMENT_DURATION_TEMPLATE_ROWS = 40
 PRODUCT_PARAMETER_TEMPLATE_ROWS = 40
 YIELD_TEMPLATE_ROWS = 40
 PACKAGING_TEMPLATE_ROWS = 40
@@ -65,6 +66,7 @@ def _build_sheets() -> tuple[SheetSpec, ...]:
         _build_scenario_controls_sheet(),
         _build_launch_timing_sheet(),
         _build_dosing_assumptions_sheet(),
+        _build_treatment_duration_assumptions_sheet(),
         _build_product_parameters_sheet(),
         _build_yield_assumptions_sheet(),
         _build_packaging_and_vialing_sheet(),
@@ -107,7 +109,18 @@ def _build_instructions_sheet() -> SheetSpec:
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "One active Scenario_Controls row is required. Dosing_Assumptions should provide one active module row for AML, MDS, CML_Incident, and CML_Prevalent.",
+                "One active Scenario_Controls row is required. Dosing_Assumptions should provide one active module row for AML, MDS, CML_Incident, and CML_Prevalent. The seeded base case uses demand_basis = patient_starts, so populate active Treatment_Duration_Assumptions rows before running the forecast workflow.",
+                WRAP_STYLE_ID,
+            ),
+        ),
+        (
+            CellSpec("Phase 1 demand basis", LABEL_STYLE_ID),
+            CellSpec(
+                "patient_starts is the preferred default operating mode and represents the approved base-case commercial input path.",
+                WRAP_STYLE_ID,
+            ),
+            CellSpec(
+                "treated_census remains supported for backward compatibility and special cases only. Do not apply duration logic on top of already treated-census inputs.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -129,7 +142,7 @@ def _build_instructions_sheet() -> SheetSpec:
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "Current Phase 2 wiring consumes: dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode.",
+                "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode, and dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -147,18 +160,18 @@ def _build_instructions_sheet() -> SheetSpec:
         (
             CellSpec("Workbook to model bridge", LABEL_STYLE_ID),
             CellSpec(
-                "After import, use the generated Phase 2 scenario directly or pass it into the one-command forecast workflow as --phase2-scenario.",
+                "After import, use the generated Phase 2 scenario directly or pass the assumptions workbook into the one-command forecast workflow.",
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "This keeps the current architecture intact while removing the need to edit TOML by hand for the active deterministic assumptions.",
+                "This keeps the current architecture intact while removing the need to edit TOML by hand for the active deterministic assumptions. The workflow also consumes the generated treatment duration artifact when demand_basis = patient_starts.",
                 WRAP_STYLE_ID,
             ),
         ),
         (
             CellSpec("Approved base-case defaults", LABEL_STYLE_ID),
             CellSpec(
-                "Seeded defaults reflect the current approved Phase 2 base case: fixed dose 0.15 mg, weight-based 0.0023 mg/kg, deterministic average weight 80 kg, AML/MDS 4.33 doses per month, CML modules 1.00 dose per month, fg_mg_per_unit 1.0 mg, DS quantity per DP unit 1.0 mg, ds_to_dp_yield 0.90, dp_to_fg_yield 0.98, ds_overage_factor 0.05, ss_ratio_to_fg 1.0.",
+                "Seeded defaults reflect the current approved base case: annual patient_starts for Phase 1, fixed dose 0.15 mg, weight-based 0.0023 mg/kg, deterministic average weight 80 kg, AML/MDS 4.33 doses per month, CML modules 1.00 dose per month, fg_mg_per_unit 1.0 mg, DS quantity per DP unit 1.0 mg, ds_to_dp_yield 0.90, dp_to_fg_yield 0.98, ds_overage_factor 0.05, ss_ratio_to_fg 1.0.",
                 WRAP_STYLE_ID,
             ),
             CellSpec(
@@ -183,6 +196,7 @@ def _build_scenario_controls_sheet() -> SheetSpec:
         "active_flag",
         "forecast_grain",
         "forecast_frequency",
+        "demand_basis",
         "dose_basis_default",
         "base_currency",
         "notes",
@@ -194,10 +208,11 @@ def _build_scenario_controls_sheet() -> SheetSpec:
             CellSpec("Approved base-case assumptions bridge", EDITABLE_WRAP_STYLE_ID),
             CellSpec("yes", EDITABLE_STYLE_ID),
             CellSpec("module_level", EDITABLE_STYLE_ID),
-            CellSpec("monthly", EDITABLE_STYLE_ID),
+            CellSpec("annual", EDITABLE_STYLE_ID),
+            CellSpec("patient_starts", EDITABLE_STYLE_ID),
             CellSpec("fixed", EDITABLE_STYLE_ID),
             CellSpec("USD", EDITABLE_STYLE_ID),
-            CellSpec("Edit this row instead of hand-editing Phase 2 TOML files.", EDITABLE_WRAP_STYLE_ID),
+            CellSpec("Edit this row instead of hand-editing config files. Seeded for the annual patient_starts base case.", EDITABLE_WRAP_STYLE_ID),
         )
     )
     rows.extend(
@@ -212,6 +227,7 @@ def _build_scenario_controls_sheet() -> SheetSpec:
                 EDITABLE_STYLE_ID,
                 EDITABLE_STYLE_ID,
                 EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
                 EDITABLE_WRAP_STYLE_ID,
             ),
         )
@@ -219,14 +235,15 @@ def _build_scenario_controls_sheet() -> SheetSpec:
     return SheetSpec(
         name="Scenario_Controls",
         rows=tuple(rows),
-        column_widths=(20, 40, 12, 18, 18, 18, 14, 56),
+        column_widths=(20, 40, 12, 18, 18, 18, 18, 14, 56),
         freeze_cell="A2",
-        auto_filter_ref="A1:H1",
+        auto_filter_ref="A1:I1",
         data_validations=(
-            DataValidationSpec("C2:C11", "list", "Lookup_Lists!$I$2:$I$3"),
-            DataValidationSpec("D2:D11", "list", "Lookup_Lists!$J$2:$J$3"),
-            DataValidationSpec("E2:E11", "list", "Lookup_Lists!$K$2:$K$3"),
-            DataValidationSpec("F2:F11", "list", "Lookup_Lists!$C$2:$C$3"),
+            DataValidationSpec("C2:C11", "list", "Lookup_Lists!$J$2:$J$3"),
+            DataValidationSpec("D2:D11", "list", "Lookup_Lists!$K$2:$K$3"),
+            DataValidationSpec("E2:E11", "list", "Lookup_Lists!$L$2:$L$3"),
+            DataValidationSpec("F2:F11", "list", "Lookup_Lists!$D$2:$D$3"),
+            DataValidationSpec("G2:G11", "list", "Lookup_Lists!$C$2:$C$3"),
         ),
     )
 
@@ -283,7 +300,7 @@ def _build_launch_timing_sheet() -> SheetSpec:
         auto_filter_ref="A1:G1",
         data_validations=(
             DataValidationSpec("B2:B41", "list", "Lookup_Lists!$A$2:$A$5"),
-            DataValidationSpec("F2:F41", "list", "Lookup_Lists!$I$2:$I$3"),
+            DataValidationSpec("F2:F41", "list", "Lookup_Lists!$J$2:$J$3"),
         ),
     )
 
@@ -371,9 +388,69 @@ def _build_dosing_assumptions_sheet() -> SheetSpec:
         data_validations=(
             DataValidationSpec("B2:B81", "list", "Lookup_Lists!$A$2:$A$5"),
             DataValidationSpec("E2:E81", "list", "Lookup_Lists!$C$2:$C$3"),
-            DataValidationSpec("J2:J81", "list", "Lookup_Lists!$E$2:$E$3"),
-            DataValidationSpec("L2:L81", "list", "Lookup_Lists!$E$2:$E$3"),
-            DataValidationSpec("P2:P81", "list", "Lookup_Lists!$I$2:$I$3"),
+            DataValidationSpec("J2:J81", "list", "Lookup_Lists!$F$2:$F$3"),
+            DataValidationSpec("L2:L81", "list", "Lookup_Lists!$F$2:$F$3"),
+            DataValidationSpec("P2:P81", "list", "Lookup_Lists!$J$2:$J$3"),
+        ),
+    )
+
+
+def _build_treatment_duration_assumptions_sheet() -> SheetSpec:
+    headers = (
+        "scenario_name",
+        "module",
+        "segment_code",
+        "geography_code",
+        "treatment_duration_months",
+        "active_flag",
+        "notes",
+    )
+    rows: list[tuple[CellSpec, ...]] = [_header_row(headers)]
+    example_rows = (
+        ("AML", "1L_fit", "ALL", 12, "yes", "Approved base-case duration default."),
+        ("AML", "1L_unfit", "ALL", 10, "yes", "Approved base-case duration default."),
+        ("AML", "RR", "ALL", 6, "yes", "Approved base-case duration default."),
+        ("MDS", "HR_MDS", "ALL", 12, "yes", "Approved base-case duration default."),
+        ("MDS", "LR_MDS", "ALL", 12, "yes", "Approved base-case duration default."),
+        ("CML_Incident", "CML_Incident", "ALL", 24, "yes", "Approved base-case duration default."),
+        ("CML_Prevalent", "CML_Prevalent", "ALL", 24, "yes", "Approved base-case duration default."),
+    )
+    for module, segment_code, geography_code, treatment_duration_months, active_flag, notes in example_rows:
+        rows.append(
+            (
+                CellSpec(style_id=CALCULATED_STYLE_ID, formula='IF(Scenario_Controls!$A$2="","",Scenario_Controls!$A$2)'),
+                CellSpec(module, EDITABLE_STYLE_ID),
+                CellSpec(segment_code, EDITABLE_STYLE_ID),
+                CellSpec(geography_code, EDITABLE_STYLE_ID),
+                CellSpec(treatment_duration_months, EDITABLE_STYLE_ID),
+                CellSpec(active_flag, EDITABLE_STYLE_ID),
+                CellSpec(notes, EDITABLE_WRAP_STYLE_ID),
+            )
+        )
+    rows.extend(
+        _blank_input_rows(
+            headers=len(headers),
+            count=TREATMENT_DURATION_TEMPLATE_ROWS - len(example_rows),
+            style_map=(
+                CALCULATED_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_WRAP_STYLE_ID,
+            ),
+        )
+    )
+    return SheetSpec(
+        name="Treatment_Duration_Assumptions",
+        rows=tuple(rows),
+        column_widths=(18, 20, 18, 16, 24, 12, 72),
+        freeze_cell="A2",
+        auto_filter_ref="A1:G1",
+        data_validations=(
+            DataValidationSpec("B2:B41", "list", "Lookup_Lists!$A$2:$A$5"),
+            DataValidationSpec("F2:F41", "list", "Lookup_Lists!$J$2:$J$3"),
         ),
     )
 
@@ -436,9 +513,9 @@ def _build_product_parameters_sheet() -> SheetSpec:
         freeze_cell="A2",
         auto_filter_ref="A1:J1",
         data_validations=(
-            DataValidationSpec("B2:B41", "list", "Lookup_Lists!$F$2:$F$3"),
+            DataValidationSpec("B2:B41", "list", "Lookup_Lists!$G$2:$G$3"),
             DataValidationSpec("C2:C41", "list", "Lookup_Lists!$B$2:$B$6"),
-            DataValidationSpec("I2:I41", "list", "Lookup_Lists!$I$2:$I$3"),
+            DataValidationSpec("I2:I41", "list", "Lookup_Lists!$J$2:$J$3"),
         ),
     )
 
@@ -504,9 +581,9 @@ def _build_yield_assumptions_sheet() -> SheetSpec:
         freeze_cell="A2",
         auto_filter_ref="A1:K1",
         data_validations=(
-            DataValidationSpec("B2:B41", "list", "Lookup_Lists!$F$2:$F$3"),
+            DataValidationSpec("B2:B41", "list", "Lookup_Lists!$G$2:$G$3"),
             DataValidationSpec("C2:C41", "list", "Lookup_Lists!$B$2:$B$6"),
-            DataValidationSpec("J2:J41", "list", "Lookup_Lists!$I$2:$I$3"),
+            DataValidationSpec("J2:J41", "list", "Lookup_Lists!$J$2:$J$3"),
         ),
     )
 
@@ -567,10 +644,10 @@ def _build_packaging_and_vialing_sheet() -> SheetSpec:
         auto_filter_ref="A1:J1",
         data_validations=(
             DataValidationSpec("B2:B41", "list", "Lookup_Lists!$A$2:$A$5"),
-            DataValidationSpec("D2:D41", "list", "Lookup_Lists!$G$2:$G$2"),
-            DataValidationSpec("E2:F41", "list", "Lookup_Lists!$E$2:$E$3"),
-            DataValidationSpec("H2:H41", "list", "Lookup_Lists!$L$2:$L$2"),
-            DataValidationSpec("I2:I41", "list", "Lookup_Lists!$I$2:$I$3"),
+            DataValidationSpec("D2:D41", "list", "Lookup_Lists!$H$2:$H$2"),
+            DataValidationSpec("E2:F41", "list", "Lookup_Lists!$F$2:$F$3"),
+            DataValidationSpec("H2:H41", "list", "Lookup_Lists!$M$2:$M$2"),
+            DataValidationSpec("I2:I41", "list", "Lookup_Lists!$J$2:$J$3"),
         ),
     )
 
@@ -620,8 +697,8 @@ def _build_ss_assumptions_sheet() -> SheetSpec:
         auto_filter_ref="A1:G1",
         data_validations=(
             DataValidationSpec("B2:B21", "list", "Lookup_Lists!$B$2:$B$6"),
-            DataValidationSpec("E2:E21", "list", "Lookup_Lists!$H$2:$H$2"),
-            DataValidationSpec("F2:F21", "list", "Lookup_Lists!$I$2:$I$3"),
+            DataValidationSpec("E2:E21", "list", "Lookup_Lists!$I$2:$I$2"),
+            DataValidationSpec("F2:F21", "list", "Lookup_Lists!$J$2:$J$3"),
         ),
     )
 
@@ -696,8 +773,8 @@ def _build_cml_prevalent_assumptions_sheet() -> SheetSpec:
         freeze_cell="A2",
         auto_filter_ref="A1:N1",
         data_validations=(
-            DataValidationSpec("K2:K41", "list", "Lookup_Lists!$M$2:$M$4"),
-            DataValidationSpec("M2:M41", "list", "Lookup_Lists!$I$2:$I$3"),
+            DataValidationSpec("K2:K41", "list", "Lookup_Lists!$N$2:$N$4"),
+            DataValidationSpec("M2:M41", "list", "Lookup_Lists!$J$2:$J$3"),
         ),
     )
 
@@ -745,7 +822,7 @@ def _build_trade_inventory_future_hooks_sheet() -> SheetSpec:
         column_widths=(18, 20, 16, 28, 32, 12, 68),
         freeze_cell="A2",
         auto_filter_ref="A1:G1",
-        data_validations=(DataValidationSpec("F2:F21", "list", "Lookup_Lists!$I$2:$I$3"),),
+        data_validations=(DataValidationSpec("F2:F21", "list", "Lookup_Lists!$J$2:$J$3"),),
     )
 
 
@@ -754,6 +831,7 @@ def _build_lookup_lists_sheet() -> SheetSpec:
         "modules",
         "modules_with_all",
         "dose_basis",
+        "demand_basis",
         "yes_no",
         "true_false",
         "parameter_scope",
@@ -767,19 +845,19 @@ def _build_lookup_lists_sheet() -> SheetSpec:
     )
     rows: list[tuple[CellSpec, ...]] = [_header_row(headers)]
     lookup_rows = (
-        ("AML", "ALL", "fixed", "yes", "true", "scenario_default", "patient_dose_ceiling", "separate_sku_first", "yes", "module_level", "monthly", "full_pack_consumed", "track_vs_pool"),
-        ("MDS", "AML", "weight_based", "no", "false", "module_override", "", "", "no", "segment_level", "annual", "", "placeholder_metadata_only"),
-        ("CML_Incident", "MDS", "", "", "", "", "", "", "", "", "", "", "validate_only"),
-        ("CML_Prevalent", "CML_Incident", "", "", "", "", "", "", "", "", "", "", ""),
-        ("", "CML_Prevalent", "", "", "", "", "", "", "", "", "", "", ""),
-        ("", "", "", "", "", "", "", "", "", "", "", "", ""),
+        ("AML", "ALL", "fixed", "patient_starts", "yes", "true", "scenario_default", "patient_dose_ceiling", "separate_sku_first", "yes", "module_level", "annual", "full_pack_consumed", "track_vs_pool"),
+        ("MDS", "AML", "weight_based", "treated_census", "no", "false", "module_override", "", "", "no", "segment_level", "monthly", "", "placeholder_metadata_only"),
+        ("CML_Incident", "MDS", "", "", "", "", "", "", "", "", "", "", "", "validate_only"),
+        ("CML_Prevalent", "CML_Incident", "", "", "", "", "", "", "", "", "", "", "", ""),
+        ("", "CML_Prevalent", "", "", "", "", "", "", "", "", "", "", "", ""),
+        ("", "", "", "", "", "", "", "", "", "", "", "", "", ""),
     )
     for row in lookup_rows:
         rows.append(tuple(CellSpec(value) for value in row))
     return SheetSpec(
         name="Lookup_Lists",
         rows=tuple(rows),
-        column_widths=(18, 18, 18, 12, 12, 18, 24, 20, 12, 18, 18, 22, 24),
+        column_widths=(18, 18, 18, 18, 12, 12, 18, 24, 20, 12, 18, 18, 22, 24),
         freeze_cell="A2",
-        auto_filter_ref="A1:M1",
+        auto_filter_ref="A1:N1",
     )

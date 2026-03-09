@@ -84,7 +84,21 @@ def run_forecast_workflow(
         workbook_path=resolved_workbook_path,
         output_dir=resolved_output_dir,
         scenario_name=effective_scenario_name,
+        treatment_duration_path=(
+            assumptions_result.file_paths["treatment_duration_assumptions"]
+            if assumptions_result is not None
+            else None
+        ),
     )
+    if (
+        assumptions_result is not None
+        and assumptions_result.context.demand_basis != import_result.context.demand_basis
+    ):
+        raise ValueError(
+            "Assumptions workbook demand_basis "
+            f"{assumptions_result.context.demand_basis!r} does not match forecast workbook demand_basis "
+            f"{import_result.context.demand_basis!r}."
+        )
     monthlyized_output_path = import_result.file_paths.get("monthlyized_output")
     if monthlyized_output_path is None or not monthlyized_output_path.exists():
         raise FileNotFoundError(
@@ -166,11 +180,15 @@ def build_workflow_summary(
             "assumptions_output_dir": str(assumptions_result.output_dir),
             "generated_phase2_scenario": str(assumptions_result.file_paths["generated_phase2_scenario"]),
             "generated_phase2_parameters": str(assumptions_result.file_paths["generated_phase2_parameters"]),
+            "treatment_duration_assumptions": str(
+                assumptions_result.file_paths["treatment_duration_assumptions"]
+            ),
         }
     return {
         "scenario_name": import_result.context.scenario_name,
         "forecast_grain": import_result.context.forecast_grain,
         "forecast_frequency": import_result.context.forecast_frequency,
+        "demand_basis": import_result.context.demand_basis,
         "geography_count": geography_count,
         "phase1_output_row_count": import_result.row_counts.get("monthlyized_output", 0),
         **phase2_summary,
@@ -197,12 +215,14 @@ def _run_import_step(
     workbook_path: Path,
     output_dir: Path,
     scenario_name: str,
+    treatment_duration_path: Path | None,
 ) -> WorkbookImportResult:
     try:
         return import_commercial_forecast_workbook(
             workbook_path=workbook_path,
             output_dir=output_dir,
             scenario_name_override=scenario_name,
+            treatment_duration_path=treatment_duration_path,
         )
     except ValueError as exc:
         raise ValueError(f"Workbook import failed: {exc}") from exc

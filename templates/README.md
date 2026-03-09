@@ -2,6 +2,18 @@
 
 Use [CBX250_Commercial_Forecast_Template.xlsx](/c:/Users/KevinCho/CBX250%20Commercial%20ChatGPT/templates/CBX250_Commercial_Forecast_Template.xlsx) as the business submission template for Phase 1 Commercial patient forecasts.
 
+Seeded base-case defaults:
+- `forecast_frequency = annual`
+- `demand_basis = patient_starts`
+
+Preferred/default operating mode:
+- use annual patient starts
+- provide treatment duration assumptions through the assumptions workbook workflow
+
+Backward-compatible mode:
+- use `treated_census` only when Commercial is already providing treated patients directly
+- do not apply treatment duration again in `treated_census` mode
+
 To normalize a completed workbook into the model CSV contracts, run:
 `python scripts/import_commercial_forecast_workbook.py --workbook templates/CBX250_Commercial_Forecast_Template.xlsx`
 

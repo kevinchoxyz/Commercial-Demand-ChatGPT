@@ -135,11 +135,22 @@ def _build_instructions_sheet() -> SheetSpec:
         (
             CellSpec("Frequency choice", LABEL_STYLE_ID),
             CellSpec(
-                "Set forecast_frequency to monthly when Commercial has month-level data. Set it to annual when Commercial only has year buckets.",
+                "Set forecast_frequency to annual when Commercial provides year-bucket patient starts, which is the intended base-case path. Use monthly only when Commercial has approved month-level data.",
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "Annual rows are monthlyized through Annual_to_Monthly_Profiles. Do not divide by 12 unless profile_id = FLAT_12.",
+                "Annual rows are monthlyized through Annual_to_Monthly_Profiles. Do not divide by 12 unless profile_id = FLAT_12. The seeded workbook defaults to annual entry.",
+                WRAP_STYLE_ID,
+            ),
+        ),
+        (
+            CellSpec("Demand basis", LABEL_STYLE_ID),
+            CellSpec(
+                "Use patient_starts as the preferred default when Commercial provides patient starts that must be converted into treated census through treatment duration logic. Use treated_census only for backward compatibility or special cases when Commercial is already providing treated patients directly.",
+                WRAP_STYLE_ID,
+            ),
+            CellSpec(
+                "Do not apply treatment duration on top of already treated census. patient_starts mode requires treatment duration assumptions from the assumptions workflow and is the seeded workbook default.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -243,7 +254,7 @@ def _build_instructions_sheet() -> SheetSpec:
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "In Phase 1, the authoritative normalized workbook export is monthlyized_output.csv. The workbook tab is reference-only unless a future exporter explicitly writes rows back into it.",
+                "In Phase 1, the authoritative normalized workbook export is monthlyized_output.csv. In patient_starts mode that CSV contains treated census derived from starts plus cohort duration logic. The workbook tab is reference-only unless a future exporter explicitly writes rows back into it.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -299,10 +310,19 @@ def _build_inputs_sheet() -> SheetSpec:
         ),
         (
             CellSpec("forecast_frequency", LABEL_STYLE_ID),
-            CellSpec("monthly", EDITABLE_STYLE_ID),
+            CellSpec("annual", EDITABLE_STYLE_ID),
             CellSpec("yes"),
             CellSpec(
-                "Choose monthly for direct monthly entry or annual for year-bucket entry that must be monthlyized through profiles.",
+                "Base-case default is annual because Commercial forecast is expected to arrive as annual patient starts. Choose monthly only for approved month-level submissions.",
+                WRAP_STYLE_ID,
+            ),
+        ),
+        (
+            CellSpec("demand_basis", LABEL_STYLE_ID),
+            CellSpec("patient_starts", EDITABLE_STYLE_ID),
+            CellSpec("yes"),
+            CellSpec(
+                "Base-case default is patient_starts. Use treated_census only when forecast rows already represent treated patients and should not be rolled forward through treatment duration.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -328,7 +348,8 @@ def _build_inputs_sheet() -> SheetSpec:
         data_validations=(
             DataValidationSpec("B3", "list", "Lookup_Lists!$A$2:$A$3"),
             DataValidationSpec("B4", "list", "Lookup_Lists!$B$2:$B$3"),
-            DataValidationSpec("B6", "list", "Lookup_Lists!$J$2:$J$3"),
+            DataValidationSpec("B5", "list", "Lookup_Lists!$C$2:$C$3"),
+            DataValidationSpec("B7", "list", "Lookup_Lists!$K$2:$K$3"),
         ),
     )
 
@@ -365,7 +386,7 @@ def _build_geography_master_sheet() -> SheetSpec:
         auto_filter_ref="A1:E1",
         data_validations=(
             DataValidationSpec("D2:D101", "whole", "1", "9999", operator="between"),
-            DataValidationSpec("E2:E101", "list", "Lookup_Lists!$I$2:$I$3"),
+            DataValidationSpec("E2:E101", "list", "Lookup_Lists!$J$2:$J$3"),
         ),
     )
 
@@ -400,7 +421,7 @@ def _build_module_level_forecast_sheet() -> SheetSpec:
                 CellSpec(month_index, EDITABLE_STYLE_ID) if month_index != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(
                     style_id=CALCULATED_DATE_STYLE_ID,
-                    formula=f'IF(OR($D{row_number}="",Inputs!$B$5=""),"",EDATE(Inputs!$B$5,$D{row_number}-1))',
+                    formula=f'IF(OR($D{row_number}="",Inputs!$B$6=""),"",EDATE(Inputs!$B$6,$D{row_number}-1))',
                 ),
                 CellSpec(patients_treated, EDITABLE_STYLE_ID)
                 if patients_treated != ""
@@ -416,7 +437,7 @@ def _build_module_level_forecast_sheet() -> SheetSpec:
         auto_filter_ref="A1:G1",
         data_validations=(
             DataValidationSpec(f"B2:B{MODULE_LEVEL_TEMPLATE_ROWS + 1}", "list", "Geography_Master!$A$2:$A$101"),
-            DataValidationSpec(f"C2:C{MODULE_LEVEL_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$C$2:$C$5"),
+            DataValidationSpec(f"C2:C{MODULE_LEVEL_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$D$2:$D$5"),
             DataValidationSpec(
                 f"D2:D{MODULE_LEVEL_TEMPLATE_ROWS + 1}",
                 "whole",
@@ -466,7 +487,7 @@ def _build_segment_level_forecast_sheet() -> SheetSpec:
                 CellSpec(month_index, EDITABLE_STYLE_ID) if month_index != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(
                     style_id=CALCULATED_DATE_STYLE_ID,
-                    formula=f'IF(OR($E{row_number}="",Inputs!$B$5=""),"",EDATE(Inputs!$B$5,$E{row_number}-1))',
+                    formula=f'IF(OR($E{row_number}="",Inputs!$B$6=""),"",EDATE(Inputs!$B$6,$E{row_number}-1))',
                 ),
                 CellSpec(patients_treated, EDITABLE_STYLE_ID)
                 if patients_treated != ""
@@ -482,8 +503,8 @@ def _build_segment_level_forecast_sheet() -> SheetSpec:
         auto_filter_ref="A1:H1",
         data_validations=(
             DataValidationSpec(f"B2:B{SEGMENT_LEVEL_TEMPLATE_ROWS + 1}", "list", "Geography_Master!$A$2:$A$101"),
-            DataValidationSpec(f"C2:C{SEGMENT_LEVEL_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$C$2:$C$5"),
-            DataValidationSpec(f"D2:D{SEGMENT_LEVEL_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$F$2:$F$7"),
+            DataValidationSpec(f"C2:C{SEGMENT_LEVEL_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$D$2:$D$5"),
+            DataValidationSpec(f"D2:D{SEGMENT_LEVEL_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$G$2:$G$7"),
             DataValidationSpec(
                 f"E2:E{SEGMENT_LEVEL_TEMPLATE_ROWS + 1}",
                 "whole",
@@ -532,7 +553,7 @@ def _build_annual_module_level_forecast_sheet() -> SheetSpec:
                 CellSpec(year_index, EDITABLE_STYLE_ID) if year_index != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(
                     style_id=CALCULATED_STYLE_ID,
-                    formula=f'IF($D{row_number}="","",YEAR(Inputs!$B$5)+$D{row_number}-1)',
+                    formula=f'IF($D{row_number}="","",YEAR(Inputs!$B$6)+$D{row_number}-1)',
                 ),
                 CellSpec(annual_patients, EDITABLE_STYLE_ID)
                 if annual_patients != ""
@@ -556,7 +577,7 @@ def _build_annual_module_level_forecast_sheet() -> SheetSpec:
             DataValidationSpec(
                 f"C2:C{ANNUAL_MODULE_LEVEL_TEMPLATE_ROWS + 1}",
                 "list",
-                "Lookup_Lists!$C$2:$C$5",
+                "Lookup_Lists!$D$2:$D$5",
             ),
             DataValidationSpec(
                 f"D2:D{ANNUAL_MODULE_LEVEL_TEMPLATE_ROWS + 1}",
@@ -574,7 +595,7 @@ def _build_annual_module_level_forecast_sheet() -> SheetSpec:
             DataValidationSpec(
                 f"G2:G{ANNUAL_MODULE_LEVEL_TEMPLATE_ROWS + 1}",
                 "list",
-                "Lookup_Lists!$D$2:$D$7",
+                "Lookup_Lists!$E$2:$E$7",
             ),
         ),
     )
@@ -613,7 +634,7 @@ def _build_annual_segment_level_forecast_sheet() -> SheetSpec:
                 CellSpec(year_index, EDITABLE_STYLE_ID) if year_index != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(
                     style_id=CALCULATED_STYLE_ID,
-                    formula=f'IF($E{row_number}="","",YEAR(Inputs!$B$5)+$E{row_number}-1)',
+                    formula=f'IF($E{row_number}="","",YEAR(Inputs!$B$6)+$E{row_number}-1)',
                 ),
                 CellSpec(annual_patients, EDITABLE_STYLE_ID)
                 if annual_patients != ""
@@ -637,12 +658,12 @@ def _build_annual_segment_level_forecast_sheet() -> SheetSpec:
             DataValidationSpec(
                 f"C2:C{ANNUAL_SEGMENT_LEVEL_TEMPLATE_ROWS + 1}",
                 "list",
-                "Lookup_Lists!$C$2:$C$5",
+                "Lookup_Lists!$D$2:$D$5",
             ),
             DataValidationSpec(
                 f"D2:D{ANNUAL_SEGMENT_LEVEL_TEMPLATE_ROWS + 1}",
                 "list",
-                "Lookup_Lists!$F$2:$F$7",
+                "Lookup_Lists!$G$2:$G$7",
             ),
             DataValidationSpec(
                 f"E2:E{ANNUAL_SEGMENT_LEVEL_TEMPLATE_ROWS + 1}",
@@ -660,7 +681,7 @@ def _build_annual_segment_level_forecast_sheet() -> SheetSpec:
             DataValidationSpec(
                 f"H2:H{ANNUAL_SEGMENT_LEVEL_TEMPLATE_ROWS + 1}",
                 "list",
-                "Lookup_Lists!$D$2:$D$7",
+                "Lookup_Lists!$E$2:$E$7",
             ),
         ),
     )
@@ -847,10 +868,10 @@ def _build_annual_to_monthly_profiles_sheet() -> SheetSpec:
         freeze_cell="A2",
         auto_filter_ref="A1:T1",
         data_validations=(
-            DataValidationSpec(f"B2:B{PROFILE_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$C$2:$C$5"),
+            DataValidationSpec(f"B2:B{PROFILE_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$D$2:$D$5"),
             DataValidationSpec(f"C2:C{PROFILE_TEMPLATE_ROWS + 1}", "list", "Geography_Master!$A$2:$A$101"),
-            DataValidationSpec(f"D2:D{PROFILE_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$F$2:$F$7"),
-            DataValidationSpec(f"E2:E{PROFILE_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$E$2:$E$5"),
+            DataValidationSpec(f"D2:D{PROFILE_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$G$2:$G$7"),
+            DataValidationSpec(f"E2:E{PROFILE_TEMPLATE_ROWS + 1}", "list", "Lookup_Lists!$F$2:$F$5"),
             DataValidationSpec(f"F2:Q{PROFILE_TEMPLATE_ROWS + 1}", "decimal", "0", "100", operator="between"),
         ),
     )
@@ -888,7 +909,7 @@ def _build_cml_prevalent_assumptions_sheet() -> SheetSpec:
                 CellSpec(year_index, EDITABLE_STYLE_ID) if year_index != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(
                     style_id=CALCULATED_STYLE_ID,
-                    formula=f'IF($C{row_number}="","",YEAR(Inputs!$B$5)+$C{row_number}-1)',
+                    formula=f'IF($C{row_number}="","",YEAR(Inputs!$B$6)+$C{row_number}-1)',
                 ),
                 CellSpec(annual_pool, EDITABLE_STYLE_ID) if annual_pool != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
                 CellSpec(fallback_patients, EDITABLE_STYLE_ID)
@@ -923,7 +944,7 @@ def _build_cml_prevalent_assumptions_sheet() -> SheetSpec:
             DataValidationSpec(
                 f"G2:G{CML_PREVALENT_ASSUMPTION_ROWS + 1}",
                 "list",
-                "Lookup_Lists!$D$2:$D$7",
+                "Lookup_Lists!$E$2:$E$7",
             ),
             DataValidationSpec(
                 f"H2:H{CML_PREVALENT_ASSUMPTION_ROWS + 1}",
@@ -942,7 +963,7 @@ def _build_cml_prevalent_assumptions_sheet() -> SheetSpec:
             DataValidationSpec(
                 f"J2:J{CML_PREVALENT_ASSUMPTION_ROWS + 1}",
                 "list",
-                "Lookup_Lists!$K$2:$K$4",
+                "Lookup_Lists!$L$2:$L$4",
             ),
         ),
     )
@@ -961,6 +982,11 @@ def _build_monthlyized_output_sheet() -> SheetSpec:
         "source_grain",
         "source_sheet",
         "profile_id_used",
+        "demand_basis_used",
+        "starts_input",
+        "continuing_patients",
+        "rolloff_patients",
+        "treatment_duration_months_used",
         "notes",
     )
     rows: list[tuple[CellSpec, ...]] = [_header_row(headers)]
@@ -976,6 +1002,11 @@ def _build_monthlyized_output_sheet() -> SheetSpec:
             CellSpec(style_id=CALCULATED_STYLE_ID, formula="Inputs!$B$4"),
             CellSpec(style_id=CALCULATED_STYLE_ID, formula="Inputs!$B$3"),
             CellSpec("CSV export is authoritative", CALCULATED_STYLE_ID),
+            CellSpec(style_id=CALCULATED_STYLE_ID),
+            CellSpec("patient_starts", CALCULATED_STYLE_ID),
+            CellSpec(style_id=CALCULATED_DECIMAL_STYLE_ID),
+            CellSpec(style_id=CALCULATED_DECIMAL_STYLE_ID),
+            CellSpec(style_id=CALCULATED_DECIMAL_STYLE_ID),
             CellSpec(style_id=CALCULATED_STYLE_ID),
             CellSpec(
                 "Reference tab only in Phase 1 unless a future exporter populates it. The authoritative normalized workbook export is monthlyized_output.csv written by the importer.",
@@ -1000,15 +1031,20 @@ def _build_monthlyized_output_sheet() -> SheetSpec:
                 CALCULATED_STYLE_ID,
                 CALCULATED_STYLE_ID,
                 CALCULATED_STYLE_ID,
+                CALCULATED_DECIMAL_STYLE_ID,
+                CALCULATED_DECIMAL_STYLE_ID,
+                CALCULATED_DECIMAL_STYLE_ID,
+                CALCULATED_STYLE_ID,
+                CALCULATED_STYLE_ID,
             ),
         )
     )
     return SheetSpec(
         name="Monthlyized_Output",
         rows=tuple(rows),
-        column_widths=(18, 18, 18, 18, 14, 18, 22, 18, 18, 24, 24, 56),
+        column_widths=(18, 18, 18, 18, 14, 18, 22, 18, 18, 24, 24, 18, 18, 20, 18, 24, 56),
         freeze_cell="A2",
-        auto_filter_ref="A1:L1",
+        auto_filter_ref="A1:Q1",
     )
 
 
@@ -1016,6 +1052,7 @@ def _build_lookup_lists_sheet() -> SheetSpec:
     headers = (
         "forecast_grain",
         "forecast_frequency",
+        "demand_basis",
         "module",
         "profile_id",
         "profile_type",
@@ -1028,22 +1065,22 @@ def _build_lookup_lists_sheet() -> SheetSpec:
     )
     rows: list[tuple[CellSpec, ...]] = [_header_row(headers)]
     lookup_values = (
-        ("module_level", "monthly", "AML", "FLAT_12", "FLAT_12", "1L_fit", "1L_fit", "HR_MDS", "yes", "true", "track_vs_pool"),
-        ("segment_level", "annual", "MDS", "LAUNCH_RAMP", "LAUNCH_RAMP", "1L_unfit", "1L_unfit", "LR_MDS", "no", "false", "placeholder_metadata_only"),
-        ("", "", "CML_Incident", "STEADY_STATE", "STEADY_STATE", "RR", "RR", "", "", "", "validate_only"),
-        ("", "", "CML_Prevalent", "CML_PREVALENT_LAUNCH", "CML_PREVALENT_BOLUS", "HR_MDS", "", "", "", "", ""),
-        ("", "", "", "CML_PREVALENT_PEAK", "", "LR_MDS", "", "", "", "", ""),
-        ("", "", "", "CML_PREVALENT_TAIL", "", "ALL", "", "", "", "", ""),
-        ("", "", "", "", "", "", "", "", "", "", ""),
+        ("module_level", "annual", "patient_starts", "AML", "FLAT_12", "FLAT_12", "1L_fit", "1L_fit", "HR_MDS", "yes", "true", "track_vs_pool"),
+        ("segment_level", "monthly", "treated_census", "MDS", "LAUNCH_RAMP", "LAUNCH_RAMP", "1L_unfit", "1L_unfit", "LR_MDS", "no", "false", "placeholder_metadata_only"),
+        ("", "", "", "CML_Incident", "STEADY_STATE", "STEADY_STATE", "RR", "RR", "", "", "", "validate_only"),
+        ("", "", "", "CML_Prevalent", "CML_PREVALENT_LAUNCH", "CML_PREVALENT_BOLUS", "HR_MDS", "", "", "", "", ""),
+        ("", "", "", "", "CML_PREVALENT_PEAK", "", "LR_MDS", "", "", "", "", ""),
+        ("", "", "", "", "CML_PREVALENT_TAIL", "", "ALL", "", "", "", "", ""),
+        ("", "", "", "", "", "", "", "", "", "", "", ""),
     )
     for row in lookup_values:
         rows.append(tuple(CellSpec(value) for value in row))
     return SheetSpec(
         name="Lookup_Lists",
         rows=tuple(rows),
-        column_widths=(18, 18, 20, 24, 24, 18, 16, 16, 12, 12, 24),
+        column_widths=(18, 18, 18, 20, 24, 24, 18, 16, 16, 12, 12, 24),
         freeze_cell="A2",
-        auto_filter_ref="A1:K1",
+        auto_filter_ref="A1:L1",
     )
 
 

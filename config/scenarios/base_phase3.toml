@@ -1,0 +1,11 @@
+# APPROVED BASE-CASE PHASE 3 SCENARIO
+# File paths are resolved relative to this file.
+
+scenario_name = "BASE_2029"
+parameter_config = "../parameters/phase3_trade_layer.toml"
+
+[inputs]
+phase2_deterministic_cascade = "../../data/outputs/base_phase2_deterministic_cascade.csv"
+
+[outputs]
+deterministic_trade_layer = "../../data/outputs/base_phase3_trade_layer.csv"

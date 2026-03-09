@@ -7,6 +7,7 @@ phase = 1
 build_scope = "deterministic_demand_foundation"
 primary_demand_input = "Commercial Patients Treated"
 forecast_grain = "module_level"
+demand_basis = "treated_census"
 
 [horizon]
 us_aml_mds_initial_approval_date = "2029-01-01"
@@ -21,4 +22,3 @@ disabled = ["trade", "production", "inventory", "financials", "monte_carlo"]
 enforce_segment_share_rules = true
 enforce_cml_prevalent_pool_constraints = true
 enforce_epi_crosscheck_warning = false
-

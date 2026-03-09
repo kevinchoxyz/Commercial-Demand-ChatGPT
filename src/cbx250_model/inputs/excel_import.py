@@ -15,6 +15,8 @@ import zipfile
 from ..calendar.monthly_calendar import MonthlyCalendar, build_monthly_calendar
 from ..constants import (
     AML_SEGMENTS,
+    DEMAND_BASIS_PATIENT_STARTS,
+    DEMAND_BASIS_TREATED_CENSUS,
     FORECAST_FREQUENCY_ANNUAL,
     FORECAST_FREQUENCY_MONTHLY,
     FORECAST_GRAIN_MODULE_LEVEL,
@@ -22,10 +24,21 @@ from ..constants import (
     MDS_SEGMENTS,
     PHASE1_HORIZON_MONTHS,
     PHASE1_MODULES,
+    SUPPORTED_DEMAND_BASES,
     SUPPORTED_FORECAST_FREQUENCIES,
     SUPPORTED_FORECAST_GRAINS,
 )
-from .schemas import CMLPrevalentPoolRecord, ModuleLevelForecastRecord, SegmentLevelForecastRecord
+from ..demand.cohort_engine import (
+    build_treated_census_from_patient_starts,
+    resolve_treatment_duration_months,
+)
+from .loaders import load_treatment_duration_assumptions
+from .schemas import (
+    CMLPrevalentPoolRecord,
+    ModuleLevelForecastRecord,
+    SegmentLevelForecastRecord,
+    TreatmentDurationRecord,
+)
 
 XML_NS = {
     "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
@@ -149,14 +162,20 @@ MONTHLYIZED_OUTPUT_HEADERS = (
     "source_grain",
     "source_sheet",
     "profile_id_used",
+    "demand_basis_used",
+    "starts_input",
+    "continuing_patients",
+    "rolloff_patients",
+    "treatment_duration_months_used",
     "notes",
 )
 INPUT_SHEET_ROWS = {
     "scenario_name": "B2",
     "forecast_grain": "B3",
     "forecast_frequency": "B4",
-    "us_aml_mds_initial_approval_date": "B5",
-    "real_geography_list_confirmed": "B6",
+    "demand_basis": "B5",
+    "us_aml_mds_initial_approval_date": "B6",
+    "real_geography_list_confirmed": "B7",
 }
 ALLOWED_PROFILE_TYPES = {"FLAT_12", "LAUNCH_RAMP", "STEADY_STATE", "CML_PREVALENT_BOLUS"}
 ALLOWED_EXHAUSTION_RULES = {"track_vs_pool", "placeholder_metadata_only", "validate_only"}
@@ -167,6 +186,7 @@ class WorkbookSubmissionContext:
     scenario_name: str
     forecast_grain: str
     forecast_frequency: str
+    demand_basis: str
     us_aml_mds_initial_approval_date: date
     real_geography_list_confirmed: bool
 
@@ -326,6 +346,7 @@ def import_commercial_forecast_workbook(
     workbook_path: Path,
     output_dir: Path | None = None,
     scenario_name_override: str | None = None,
+    treatment_duration_path: Path | None = None,
 ) -> WorkbookImportResult:
     reader = WorkbookReader(workbook_path)
     context, allowed_scenario_names = _load_submission_context(
@@ -333,6 +354,10 @@ def import_commercial_forecast_workbook(
         scenario_name_override=scenario_name_override,
     )
     calendar = build_monthly_calendar(context.us_aml_mds_initial_approval_date, PHASE1_HORIZON_MONTHS)
+    treatment_duration_rows = _load_treatment_duration_rows(
+        treatment_duration_path=treatment_duration_path,
+        context=context,
+    )
 
     geography_rows = _normalize_geography_master(reader.read_table("Geography_Master", GEOGRAPHY_MASTER_HEADERS))
     geography_codes = {row["geography_code"] for row in geography_rows}
@@ -467,6 +492,7 @@ def import_commercial_forecast_workbook(
         segment_rows=segment_rows,
         aml_mix_rows=aml_mix_rows,
         mds_mix_rows=mds_mix_rows,
+        treatment_duration_rows=treatment_duration_rows,
     )
     warnings = list(
         _build_warnings(
@@ -494,6 +520,7 @@ def import_commercial_forecast_workbook(
         aml_mix_rows=aml_mix_rows,
         mds_mix_rows=mds_mix_rows,
         cml_pool_rows=cml_pool_rows,
+        treatment_duration_rows=treatment_duration_rows,
         monthlyized_output_rows=monthlyized_output_rows,
         warnings=tuple(warnings),
         context=context,
@@ -508,6 +535,7 @@ def import_commercial_forecast_workbook(
         "aml_segment_mix": len(aml_mix_rows),
         "mds_segment_mix": len(mds_mix_rows),
         "inp_cml_prevalent": len(cml_pool_rows),
+        "treatment_duration_assumptions": len(treatment_duration_rows),
         "monthlyized_output": len(monthlyized_output_rows),
     }
     return WorkbookImportResult(
@@ -544,6 +572,14 @@ def _load_submission_context(
         raise ValueError(
             f"forecast_frequency must be one of {SUPPORTED_FORECAST_FREQUENCIES}, received {forecast_frequency!r}."
         )
+    demand_basis = _require_nonempty_value(
+        values.get(INPUT_SHEET_ROWS["demand_basis"], ""),
+        "demand_basis",
+    )
+    if demand_basis not in SUPPORTED_DEMAND_BASES:
+        raise ValueError(
+            f"demand_basis must be one of {SUPPORTED_DEMAND_BASES}, received {demand_basis!r}."
+        )
     approval_date = _parse_workbook_date(
         values.get(INPUT_SHEET_ROWS["us_aml_mds_initial_approval_date"], ""),
         "us_aml_mds_initial_approval_date",
@@ -556,6 +592,7 @@ def _load_submission_context(
         scenario_name=scenario_name,
         forecast_grain=forecast_grain,
         forecast_frequency=forecast_frequency,
+        demand_basis=demand_basis,
         us_aml_mds_initial_approval_date=approval_date,
         real_geography_list_confirmed=real_geography_list_confirmed,
     )
@@ -563,6 +600,30 @@ def _load_submission_context(
         dict.fromkeys(name for name in (scenario_name, workbook_scenario_name) if name)
     )
     return context, allowed_scenario_names
+
+
+def _load_treatment_duration_rows(
+    *,
+    treatment_duration_path: Path | None,
+    context: WorkbookSubmissionContext,
+) -> tuple[TreatmentDurationRecord, ...]:
+    if treatment_duration_path is None:
+        if context.demand_basis == DEMAND_BASIS_PATIENT_STARTS:
+            raise ValueError(
+                "patient_starts mode requires treatment duration assumptions, but no treatment_duration_path was provided."
+            )
+        return tuple()
+    resolved_path = treatment_duration_path.resolve()
+    if not resolved_path.exists():
+        raise FileNotFoundError(f"Treatment duration assumptions file not found: {resolved_path}")
+    rows = load_treatment_duration_assumptions(resolved_path)
+    if context.demand_basis == DEMAND_BASIS_PATIENT_STARTS and not any(
+        record.active_flag for record in rows
+    ):
+        raise ValueError(
+            "patient_starts mode requires at least one active treatment duration assumption row."
+        )
+    return rows
 
 
 def _normalize_geography_master(rows: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -1402,12 +1463,25 @@ def _build_monthlyized_output_rows(
     segment_rows: list[ForecastInputRow],
     aml_mix_rows: list[dict[str, str]],
     mds_mix_rows: list[dict[str, str]],
+    treatment_duration_rows: tuple[TreatmentDurationRecord, ...],
 ) -> list[dict[str, str]]:
     outputs: list[dict[str, str]] = []
     if context.forecast_grain == FORECAST_GRAIN_SEGMENT_LEVEL:
         for row in segment_rows:
-            outputs.append(_build_monthlyized_output_record(calendar=calendar, row=row, segment_code=row.segment_code or ""))
-        return outputs
+            outputs.append(
+                _build_monthlyized_output_record(
+                    calendar=calendar,
+                    row=row,
+                    segment_code=row.segment_code or "",
+                    demand_basis_used=context.demand_basis,
+                )
+            )
+        return _apply_patient_starts_rollforward_if_needed(
+            context=context,
+            calendar=calendar,
+            rows=outputs,
+            treatment_duration_rows=treatment_duration_rows,
+        )
 
     aml_mix_lookup = _build_mix_lookup(aml_mix_rows, AML_SEGMENTS)
     mds_mix_lookup = _build_mix_lookup(mds_mix_rows, MDS_SEGMENTS)
@@ -1427,6 +1501,7 @@ def _build_monthlyized_output_rows(
                         row=row,
                         segment_code=segment_code,
                         patients_treated=row.patients_treated * segment_share,
+                        demand_basis_used=context.demand_basis,
                         notes=_combine_notes(row.notes, "allocated_using_AML_Mix"),
                     )
                 )
@@ -1446,6 +1521,7 @@ def _build_monthlyized_output_rows(
                         row=row,
                         segment_code=segment_code,
                         patients_treated=row.patients_treated * segment_share,
+                        demand_basis_used=context.demand_basis,
                         notes=_combine_notes(row.notes, "allocated_using_MDS_Mix"),
                     )
                 )
@@ -1455,9 +1531,15 @@ def _build_monthlyized_output_rows(
                 calendar=calendar,
                 row=row,
                 segment_code=row.module,
+                demand_basis_used=context.demand_basis,
             )
         )
-    return outputs
+    return _apply_patient_starts_rollforward_if_needed(
+        context=context,
+        calendar=calendar,
+        rows=outputs,
+        treatment_duration_rows=treatment_duration_rows,
+    )
 
 
 def _build_monthlyized_output_record(
@@ -1466,6 +1548,11 @@ def _build_monthlyized_output_record(
     row: ForecastInputRow,
     segment_code: str,
     patients_treated: float | None = None,
+    demand_basis_used: str,
+    starts_input: float = 0.0,
+    continuing_patients: float = 0.0,
+    rolloff_patients: float = 0.0,
+    treatment_duration_months_used: int | None = None,
     notes: str | None = None,
 ) -> dict[str, str]:
     month = calendar.get_month(row.month_index)
@@ -1483,8 +1570,84 @@ def _build_monthlyized_output_record(
         "source_grain": row.source_grain,
         "source_sheet": row.source_sheet,
         "profile_id_used": row.profile_id_used,
+        "demand_basis_used": demand_basis_used,
+        "starts_input": _format_numeric(starts_input),
+        "continuing_patients": _format_numeric(continuing_patients),
+        "rolloff_patients": _format_numeric(rolloff_patients),
+        "treatment_duration_months_used": (
+            str(treatment_duration_months_used)
+            if treatment_duration_months_used is not None
+            else ""
+        ),
         "notes": notes if notes is not None else row.notes,
     }
+
+
+def _apply_patient_starts_rollforward_if_needed(
+    *,
+    context: WorkbookSubmissionContext,
+    calendar: MonthlyCalendar,
+    rows: list[dict[str, str]],
+    treatment_duration_rows: tuple[TreatmentDurationRecord, ...],
+) -> list[dict[str, str]]:
+    if context.demand_basis != DEMAND_BASIS_PATIENT_STARTS:
+        return rows
+
+    grouped: dict[tuple[str, str, str], dict[int, dict[str, str]]] = defaultdict(dict)
+    for row in rows:
+        grouped[(row["geography_code"], row["module"], row["segment_code"])][
+            int(row["month_index"])
+        ] = row
+
+    transformed_rows: list[dict[str, str]] = []
+    for (geography_code, module, segment_code), rows_by_month in sorted(grouped.items()):
+        duration_months = resolve_treatment_duration_months(
+            records=treatment_duration_rows,
+            geography_code=geography_code,
+            module=module,
+            segment_code=segment_code,
+        )
+        audit_rows = build_treated_census_from_patient_starts(
+            starts_by_month={
+                month_index: float(row["patients_treated_monthly"])
+                for month_index, row in rows_by_month.items()
+            },
+            treatment_duration_months=duration_months,
+            horizon_months=PHASE1_HORIZON_MONTHS,
+        )
+        for audit_row in audit_rows:
+            seed_row = rows_by_month.get(audit_row.month_index)
+            if seed_row is None:
+                nearest_month_index = min(
+                    rows_by_month,
+                    key=lambda month_index: abs(month_index - audit_row.month_index),
+                )
+                seed_row = rows_by_month[nearest_month_index]
+            month = calendar.get_month(audit_row.month_index)
+            transformed_rows.append(
+                {
+                    **seed_row,
+                    "month_index": str(audit_row.month_index),
+                    "calendar_month": month.month_start.isoformat(),
+                    "patients_treated_monthly": _format_numeric(audit_row.patients_treated),
+                    "demand_basis_used": context.demand_basis,
+                    "starts_input": _format_numeric(audit_row.starts_input),
+                    "continuing_patients": _format_numeric(audit_row.continuing_patients),
+                    "rolloff_patients": _format_numeric(audit_row.rolloff_patients),
+                    "treatment_duration_months_used": str(duration_months),
+                    "notes": _combine_notes(seed_row.get("notes", ""), "derived_from_patient_starts"),
+                }
+            )
+
+    return sorted(
+        transformed_rows,
+        key=lambda row: (
+            row["geography_code"],
+            row["module"],
+            row["segment_code"],
+            int(row["month_index"]),
+        ),
+    )
 
 
 def _build_mix_lookup(
@@ -1557,6 +1720,7 @@ def _write_import_outputs(
     aml_mix_rows: list[dict[str, str]],
     mds_mix_rows: list[dict[str, str]],
     cml_pool_rows: list[dict[str, str]],
+    treatment_duration_rows: tuple[TreatmentDurationRecord, ...],
     monthlyized_output_rows: list[dict[str, str]],
     warnings: tuple[str, ...],
     context: WorkbookSubmissionContext,
@@ -1572,6 +1736,7 @@ def _write_import_outputs(
         "mds_segment_mix": output_dir / "mds_segment_mix.csv",
         "inp_epi_crosscheck": output_dir / "inp_epi_crosscheck.csv",
         "inp_cml_prevalent": output_dir / "inp_cml_prevalent.csv",
+        "treatment_duration_assumptions": output_dir / "treatment_duration_assumptions.csv",
         "monthlyized_output": output_dir / "monthlyized_output.csv",
         "import_summary": output_dir / "workbook_import_summary.json",
     }
@@ -1624,6 +1789,30 @@ def _write_import_outputs(
         cml_pool_rows,
     )
     _write_csv(
+        paths["treatment_duration_assumptions"],
+        (
+            "scenario_name",
+            "geography_code",
+            "module",
+            "segment_code",
+            "treatment_duration_months",
+            "active_flag",
+            "notes",
+        ),
+        [
+            {
+                "scenario_name": context.scenario_name,
+                "geography_code": row.geography_code,
+                "module": row.module,
+                "segment_code": row.segment_code,
+                "treatment_duration_months": str(row.treatment_duration_months),
+                "active_flag": "true" if row.active_flag else "false",
+                "notes": row.notes,
+            }
+            for row in treatment_duration_rows
+        ],
+    )
+    _write_csv(
         paths["monthlyized_output"],
         MONTHLYIZED_OUTPUT_HEADERS,
         [{**row, "scenario_name": context.scenario_name} for row in monthlyized_output_rows],
@@ -1634,6 +1823,7 @@ def _write_import_outputs(
         "scenario_name": context.scenario_name,
         "forecast_grain": context.forecast_grain,
         "forecast_frequency": context.forecast_frequency,
+        "demand_basis": context.demand_basis,
         "us_aml_mds_initial_approval_date": context.us_aml_mds_initial_approval_date.isoformat(),
         "real_geography_list_confirmed": context.real_geography_list_confirmed,
         "output_dir": str(output_dir),
@@ -1645,6 +1835,7 @@ def _write_import_outputs(
             "aml_segment_mix": len(aml_mix_rows),
             "mds_segment_mix": len(mds_mix_rows),
             "inp_cml_prevalent": len(cml_pool_rows),
+            "treatment_duration_assumptions": len(treatment_duration_rows),
             "monthlyized_output": len(monthlyized_output_rows),
         },
         "monthlyized_output_rows_by_module": dict(
@@ -1658,6 +1849,7 @@ def _write_import_outputs(
             "Annual_to_Monthly_Profiles remain editable starter defaults rather than fixed business assumptions.",
             "CML_Prevalent_Assumptions is optional for explicit CML_Prevalent demand import. If provided, it generates inp_cml_prevalent.csv for validation; if explicit forecast rows are absent, it can also generate fallback CML_Prevalent demand.",
             "The importer writes monthlyized_output.csv as the authoritative normalized monthly workbook export in Phase 1; the workbook tab is reserved as a generated/reference placeholder.",
+            "When demand_basis = patient_starts, monthlyized_output.csv is the authoritative treated-census output derived from starts plus treatment duration cohort roll-forward.",
             "exhaustion_rule is carried as workbook metadata and does not introduce new depletion logic beyond the supplied annual totals, launch_month_index, and duration_months.",
         ],
     }
@@ -1686,6 +1878,10 @@ def _build_warnings(
     if not context.real_geography_list_confirmed:
         warnings.append(
             "real_geography_list_confirmed is false on the Inputs sheet; review Geography_Master before using this package as a production scenario."
+        )
+    if context.demand_basis == DEMAND_BASIS_PATIENT_STARTS:
+        warnings.append(
+            "demand_basis is patient_starts, so monthlyized_output.csv contains treated census derived from starts plus treatment duration cohort roll-forward."
         )
     if context.forecast_grain == FORECAST_GRAIN_MODULE_LEVEL and segment_rows:
         warnings.append(

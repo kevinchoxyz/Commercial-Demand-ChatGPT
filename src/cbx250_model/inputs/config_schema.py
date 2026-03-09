@@ -8,12 +8,14 @@ from pathlib import Path
 import tomllib
 
 from ..constants import (
+    DEMAND_BASIS_PATIENT_STARTS,
     FORECAST_GRAIN_MODULE_LEVEL,
     PHASE1_DISABLED_CAPABILITIES,
     PHASE1_HORIZON_MONTHS,
     PHASE1_MODULES,
     PHASE1_TIME_GRAIN,
     PRIMARY_DEMAND_INPUT,
+    SUPPORTED_DEMAND_BASES,
     SUPPORTED_FORECAST_GRAINS,
 )
 
@@ -41,6 +43,7 @@ class ModelConfig:
     build_scope: str
     primary_demand_input: str
     forecast_grain: str
+    demand_basis: str
 
     def __post_init__(self) -> None:
         if self.phase != 1:
@@ -54,6 +57,11 @@ class ModelConfig:
             raise ValueError(
                 "forecast_grain must be one of "
                 f"{SUPPORTED_FORECAST_GRAINS}, received {self.forecast_grain!r}."
+            )
+        if self.demand_basis not in SUPPORTED_DEMAND_BASES:
+            raise ValueError(
+                "demand_basis must be one of "
+                f"{SUPPORTED_DEMAND_BASES}, received {self.demand_basis!r}."
             )
 
 
@@ -110,6 +118,7 @@ class InputPaths:
     aml_segment_mix: Path
     mds_segment_mix: Path
     cml_prevalent: Path
+    treatment_duration_assumptions: Path
 
 
 @dataclass(frozen=True)
@@ -142,6 +151,7 @@ def load_phase1_config(scenario_path: Path) -> Phase1Config:
         build_scope=str(model_data["build_scope"]),
         primary_demand_input=str(model_data["primary_demand_input"]),
         forecast_grain=str(model_data.get("forecast_grain", FORECAST_GRAIN_MODULE_LEVEL)),
+        demand_basis=str(model_data.get("demand_basis", DEMAND_BASIS_PATIENT_STARTS)),
     )
     horizon = HorizonConfig(
         us_aml_mds_initial_approval_date=_parse_date(
@@ -175,6 +185,10 @@ def load_phase1_config(scenario_path: Path) -> Phase1Config:
         aml_segment_mix=_resolve_path(scenario_dir, inputs_data["aml_segment_mix"]),
         mds_segment_mix=_resolve_path(scenario_dir, inputs_data["mds_segment_mix"]),
         cml_prevalent=_resolve_path(scenario_dir, inputs_data["cml_prevalent"]),
+        treatment_duration_assumptions=_resolve_path(
+            scenario_dir,
+            inputs_data["treatment_duration_assumptions"],
+        ),
     )
 
     return Phase1Config(

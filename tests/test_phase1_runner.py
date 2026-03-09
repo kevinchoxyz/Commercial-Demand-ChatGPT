@@ -15,11 +15,13 @@ def _write_phase1_scenario(
     tmp_path: Path,
     *,
     forecast_grain: str,
+    demand_basis: str = "treated_census",
     module_level_rows: list[str] | None = None,
     segment_level_rows: list[str] | None = None,
     aml_mix_rows: list[str] | None = None,
     mds_mix_rows: list[str] | None = None,
     cml_prevalent_rows: list[str] | None = None,
+    treatment_duration_rows: list[str] | None = None,
 ) -> Path:
     config_dir = tmp_path / "config"
     parameters_dir = config_dir / "parameters"
@@ -37,6 +39,7 @@ def _write_phase1_scenario(
             'build_scope = "deterministic_demand_foundation"',
             'primary_demand_input = "Commercial Patients Treated"',
             f'forecast_grain = "{forecast_grain}"',
+            f'demand_basis = "{demand_basis}"',
             "",
             "[horizon]",
             'us_aml_mds_initial_approval_date = "2029-01-01"',
@@ -67,6 +70,7 @@ def _write_phase1_scenario(
             'aml_segment_mix = "../../data/aml_segment_mix.csv"',
             'mds_segment_mix = "../../data/mds_segment_mix.csv"',
             'cml_prevalent = "../../data/inp_cml_prevalent.csv"',
+            'treatment_duration_assumptions = "../../data/treatment_duration_assumptions.csv"',
         ],
     )
 
@@ -107,6 +111,13 @@ def _write_phase1_scenario(
         [
             "geography_code,month_index,addressable_prevalent_pool",
             *(cml_prevalent_rows or []),
+        ],
+    )
+    _write_lines(
+        data_dir / "treatment_duration_assumptions.csv",
+        [
+            "scenario_name,geography_code,module,segment_code,treatment_duration_months,active_flag,notes",
+            *(treatment_duration_rows or []),
         ],
     )
 
@@ -158,6 +169,7 @@ def test_module_level_allocates_aml_mds_and_keeps_cml_separate(tmp_path: Path) -
     assert output_map[("CML_Incident", "CML_Incident")] == 20.0
     assert output_map[("CML_Prevalent", "CML_Prevalent")] == 30.0
     assert summary["forecast_grain"] == "module_level"
+    assert summary["demand_basis"] == "treated_census"
     assert summary["geography_count"] == 1
     assert summary["output_rows_by_module"] == {
         "AML": 3,
@@ -232,3 +244,88 @@ def test_bad_segment_codes_fail_in_segment_level_mode(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="segment_code"):
         run_phase1_scenario(scenario_path)
+
+
+def test_patient_starts_mode_builds_continuing_census_and_rolloff(tmp_path: Path) -> None:
+    scenario_path = _write_phase1_scenario(
+        tmp_path,
+        forecast_grain="segment_level",
+        demand_basis="patient_starts",
+        segment_level_rows=[
+            "US,AML,1L_fit,1,10",
+            "US,AML,1L_fit,2,10",
+        ],
+        treatment_duration_rows=[
+            "BASE,ALL,AML,1L_fit,12,true,Approved base-case duration default.",
+        ],
+    )
+
+    result = run_phase1_scenario(scenario_path)
+    output_map = {
+        (row.module, row.segment_code, row.month_index): row
+        for row in result.outputs
+    }
+
+    assert not result.validation.has_errors
+    assert output_map[("AML", "1L_fit", 1)].patients_treated == 10.0
+    assert output_map[("AML", "1L_fit", 2)].patients_treated == 20.0
+    assert output_map[("AML", "1L_fit", 2)].continuing_patients == 10.0
+    assert output_map[("AML", "1L_fit", 13)].patients_treated == 10.0
+    assert output_map[("AML", "1L_fit", 13)].rolloff_patients == 10.0
+    assert ("AML", "1L_fit", 14) not in output_map
+
+
+def test_patient_starts_mode_respects_segment_specific_durations(tmp_path: Path) -> None:
+    scenario_path = _write_phase1_scenario(
+        tmp_path,
+        forecast_grain="segment_level",
+        demand_basis="patient_starts",
+        segment_level_rows=[
+            "US,AML,1L_fit,1,10",
+            "US,AML,RR,1,10",
+        ],
+        treatment_duration_rows=[
+            "BASE,ALL,AML,1L_fit,12,true,Approved base-case duration default.",
+            "BASE,ALL,AML,RR,6,true,Approved base-case duration default.",
+        ],
+    )
+
+    result = run_phase1_scenario(scenario_path)
+    output_map = {
+        (row.module, row.segment_code, row.month_index): row.patients_treated
+        for row in result.outputs
+    }
+
+    assert not result.validation.has_errors
+    assert output_map[("AML", "1L_fit", 7)] == 10.0
+    assert ("AML", "RR", 7) not in output_map
+
+
+def test_patient_starts_mode_supports_cml_incident_and_prevalent_24_month_duration(tmp_path: Path) -> None:
+    cml_pool_rows = [f"US,{month_index},100" for month_index in range(1, 25)]
+    scenario_path = _write_phase1_scenario(
+        tmp_path,
+        forecast_grain="segment_level",
+        demand_basis="patient_starts",
+        segment_level_rows=[
+            "US,CML_Incident,CML_Incident,1,5",
+            "US,CML_Prevalent,CML_Prevalent,1,6",
+        ],
+        cml_prevalent_rows=cml_pool_rows,
+        treatment_duration_rows=[
+            "BASE,ALL,CML_Incident,CML_Incident,24,true,Approved base-case duration default.",
+            "BASE,ALL,CML_Prevalent,CML_Prevalent,24,true,Approved base-case duration default.",
+        ],
+    )
+
+    result = run_phase1_scenario(scenario_path)
+    output_map = {
+        (row.module, row.segment_code, row.month_index): row.patients_treated
+        for row in result.outputs
+    }
+
+    assert not result.validation.has_errors
+    assert output_map[("CML_Incident", "CML_Incident", 24)] == 5.0
+    assert output_map[("CML_Prevalent", "CML_Prevalent", 24)] == 6.0
+    assert ("CML_Incident", "CML_Incident", 25) not in output_map
+    assert ("CML_Prevalent", "CML_Prevalent", 25) not in output_map
