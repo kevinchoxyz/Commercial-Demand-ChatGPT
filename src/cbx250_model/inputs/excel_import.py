@@ -158,6 +158,10 @@ MONTHLYIZED_OUTPUT_HEADERS = (
     "month_index",
     "calendar_month",
     "patients_treated_monthly",
+    "patients_active",
+    "patient_starts",
+    "patients_continuing",
+    "patients_rolloff",
     "source_frequency",
     "source_grain",
     "source_sheet",
@@ -1549,13 +1553,14 @@ def _build_monthlyized_output_record(
     segment_code: str,
     patients_treated: float | None = None,
     demand_basis_used: str,
-    starts_input: float = 0.0,
-    continuing_patients: float = 0.0,
-    rolloff_patients: float = 0.0,
+    patient_starts: float = 0.0,
+    patients_continuing: float = 0.0,
+    patients_rolloff: float = 0.0,
     treatment_duration_months_used: int | None = None,
     notes: str | None = None,
 ) -> dict[str, str]:
     month = calendar.get_month(row.month_index)
+    patients_active = row.patients_treated if patients_treated is None else patients_treated
     return {
         "scenario_name": "",
         "geography_code": row.geography_code,
@@ -1563,17 +1568,19 @@ def _build_monthlyized_output_record(
         "segment_code": segment_code,
         "month_index": str(row.month_index),
         "calendar_month": month.month_start.isoformat(),
-        "patients_treated_monthly": _format_numeric(
-            row.patients_treated if patients_treated is None else patients_treated
-        ),
+        "patients_treated_monthly": _format_numeric(patients_active),
+        "patients_active": _format_numeric(patients_active),
+        "patient_starts": _format_numeric(patient_starts),
+        "patients_continuing": _format_numeric(patients_continuing),
+        "patients_rolloff": _format_numeric(patients_rolloff),
         "source_frequency": row.source_frequency,
         "source_grain": row.source_grain,
         "source_sheet": row.source_sheet,
         "profile_id_used": row.profile_id_used,
         "demand_basis_used": demand_basis_used,
-        "starts_input": _format_numeric(starts_input),
-        "continuing_patients": _format_numeric(continuing_patients),
-        "rolloff_patients": _format_numeric(rolloff_patients),
+        "starts_input": _format_numeric(patient_starts),
+        "continuing_patients": _format_numeric(patients_continuing),
+        "rolloff_patients": _format_numeric(patients_rolloff),
         "treatment_duration_months_used": (
             str(treatment_duration_months_used)
             if treatment_duration_months_used is not None
@@ -1629,11 +1636,15 @@ def _apply_patient_starts_rollforward_if_needed(
                     **seed_row,
                     "month_index": str(audit_row.month_index),
                     "calendar_month": month.month_start.isoformat(),
-                    "patients_treated_monthly": _format_numeric(audit_row.patients_treated),
+                    "patients_treated_monthly": _format_numeric(audit_row.patients_active),
+                    "patients_active": _format_numeric(audit_row.patients_active),
+                    "patient_starts": _format_numeric(audit_row.patient_starts),
+                    "patients_continuing": _format_numeric(audit_row.patients_continuing),
+                    "patients_rolloff": _format_numeric(audit_row.patients_rolloff),
                     "demand_basis_used": context.demand_basis,
-                    "starts_input": _format_numeric(audit_row.starts_input),
-                    "continuing_patients": _format_numeric(audit_row.continuing_patients),
-                    "rolloff_patients": _format_numeric(audit_row.rolloff_patients),
+                    "starts_input": _format_numeric(audit_row.patient_starts),
+                    "continuing_patients": _format_numeric(audit_row.patients_continuing),
+                    "rolloff_patients": _format_numeric(audit_row.patients_rolloff),
                     "treatment_duration_months_used": str(duration_months),
                     "notes": _combine_notes(seed_row.get("notes", ""), "derived_from_patient_starts"),
                 }
@@ -1850,6 +1861,7 @@ def _write_import_outputs(
             "CML_Prevalent_Assumptions is optional for explicit CML_Prevalent demand import. If provided, it generates inp_cml_prevalent.csv for validation; if explicit forecast rows are absent, it can also generate fallback CML_Prevalent demand.",
             "The importer writes monthlyized_output.csv as the authoritative normalized monthly workbook export in Phase 1; the workbook tab is reserved as a generated/reference placeholder.",
             "When demand_basis = patient_starts, monthlyized_output.csv is the authoritative treated-census output derived from starts plus treatment duration cohort roll-forward.",
+            "monthlyized_output.csv now separates patient_starts, patients_continuing, patients_rolloff, and patients_active. patients_treated_monthly is retained temporarily as the backward-compatible alias of patients_active.",
             "exhaustion_rule is carried as workbook metadata and does not introduce new depletion logic beyond the supplied annual totals, launch_month_index, and duration_months.",
         ],
     }

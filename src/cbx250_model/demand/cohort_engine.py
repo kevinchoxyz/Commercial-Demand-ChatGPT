@@ -10,10 +10,26 @@ from ..inputs.schemas import TreatmentDurationRecord
 @dataclass(frozen=True)
 class CohortMonthAudit:
     month_index: int
-    starts_input: float
-    continuing_patients: float
-    rolloff_patients: float
-    patients_treated: float
+    patient_starts: float
+    patients_continuing: float
+    patients_rolloff: float
+    patients_active: float
+
+    @property
+    def starts_input(self) -> float:
+        return self.patient_starts
+
+    @property
+    def continuing_patients(self) -> float:
+        return self.patients_continuing
+
+    @property
+    def rolloff_patients(self) -> float:
+        return self.patients_rolloff
+
+    @property
+    def patients_treated(self) -> float:
+        return self.patients_active
 
 
 def build_treated_census_from_patient_starts(
@@ -29,28 +45,28 @@ def build_treated_census_from_patient_starts(
 
     outputs: list[CohortMonthAudit] = []
     for month_index in range(1, horizon_months + 1):
-        starts_input = starts_by_month.get(month_index, 0.0)
-        continuing_patients = sum(
+        patient_starts = starts_by_month.get(month_index, 0.0)
+        patients_continuing = sum(
             starts_by_month.get(prior_month_index, 0.0)
             for prior_month_index in range(
                 max(1, month_index - treatment_duration_months + 1),
                 month_index,
             )
         )
-        rolloff_patients = starts_by_month.get(
+        patients_rolloff = starts_by_month.get(
             month_index - treatment_duration_months,
             0.0,
         )
-        patients_treated = starts_input + continuing_patients
-        if patients_treated <= 0:
+        patients_active = patient_starts + patients_continuing
+        if patients_active <= 0:
             continue
         outputs.append(
             CohortMonthAudit(
                 month_index=month_index,
-                starts_input=starts_input,
-                continuing_patients=continuing_patients,
-                rolloff_patients=rolloff_patients,
-                patients_treated=patients_treated,
+                patient_starts=patient_starts,
+                patients_continuing=patients_continuing,
+                patients_rolloff=patients_rolloff,
+                patients_active=patients_active,
             )
         )
     return tuple(outputs)

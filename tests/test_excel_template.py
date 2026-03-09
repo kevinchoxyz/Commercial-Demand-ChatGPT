@@ -148,6 +148,10 @@ def test_build_commercial_forecast_template_creates_expected_workbook(tmp_path: 
         "month_index",
         "calendar_month",
         "patients_treated_monthly",
+        "patients_active",
+        "patient_starts",
+        "patients_continuing",
+        "patients_rolloff",
         "source_frequency",
         "source_grain",
         "source_sheet",
@@ -159,7 +163,7 @@ def test_build_commercial_forecast_template_creates_expected_workbook(tmp_path: 
         "treatment_duration_months_used",
         "notes",
     ]
-    assert _row_values(output_path, sheet_map["Monthlyized_Output"], 2)[9:] == [
+    assert _row_values(output_path, sheet_map["Monthlyized_Output"], 2)[13:] == [
         "CSV export is authoritative",
         "",
         "patient_starts",
@@ -167,7 +171,7 @@ def test_build_commercial_forecast_template_creates_expected_workbook(tmp_path: 
         "",
         "",
         "",
-        "Reference tab only in Phase 1 unless a future exporter populates it. The authoritative normalized workbook export is monthlyized_output.csv written by the importer.",
+        "Reference tab only in Phase 1 unless a future exporter populates it. The authoritative normalized workbook export is monthlyized_output.csv written by the importer; patients_treated_monthly is the backward-compatible alias of patients_active.",
     ]
     assert _row_values(output_path, sheet_map["Lookup_Lists"], 2) == [
         "module_level",

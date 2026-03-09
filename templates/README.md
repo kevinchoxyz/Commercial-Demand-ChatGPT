@@ -48,6 +48,12 @@ Importer behavior:
 - Converts `ALL` on CML segment rows into the model's internal segment codes.
 - Monthlyizes annual forecast rows into the normalized monthly Phase 1 contracts.
 - Writes `monthlyized_output.csv` as the authoritative normalized monthly workbook export for Phase 1.
+- `monthlyized_output.csv` now separates:
+  - `patient_starts`
+  - `patients_continuing`
+  - `patients_rolloff`
+  - `patients_active`
+- `patients_treated_monthly` is retained temporarily as the backward-compatible alias of `patients_active`.
 - Leaves the workbook `Monthlyized_Output` tab as a generated/reference placeholder unless future exporter logic explicitly writes rows back into the workbook.
 - Creates a header-only placeholder for `inp_epi_crosscheck.csv` because epi cross-check inputs are not collected in the workbook.
 
@@ -75,4 +81,8 @@ Separate from the Commercial forecast workbook, the repo now also includes a bus
 - `templates/CBX250_Model_Assumptions_Template.xlsx`
 - generate it with `python scripts/generate_model_assumptions_template.py`
 - import it with `python scripts/assumptions_import.py --workbook templates/CBX250_Model_Assumptions_Template.xlsx`
-- the assumptions importer writes normalized assumption artifacts plus generated Phase 2 config files under `data/outputs/<scenario_name>/assumptions/`
+- the assumptions importer writes normalized assumption artifacts plus generated Phase 2 and Phase 3 config files under `data/outputs/<scenario_name>/assumptions/`
+- `Trade_Inventory_FutureHooks` is now the business-facing sheet for the active deterministic Phase 3 trade config:
+  - `scenario_default` row -> global `trade.*`
+  - `geography_default` rows -> `geography_defaults.<geography>`
+  - `launch_event` rows -> `launch_events.<module>.<geography>.launch_month_index`

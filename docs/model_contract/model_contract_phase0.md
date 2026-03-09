@@ -126,6 +126,13 @@ Current repo implementation boundary:
 
 ### 4.3 Phase 1 Output Contract
 - monthly patient-treated output at `scenario x geography x module x segment x month`
+- business-facing cohort fields:
+  - `patient_starts`
+  - `patients_continuing`
+  - `patients_rolloff`
+  - `patients_active`
+- backward-compatible alias retained during transition:
+  - `patients_treated_monthly = patients_active`
 
 ### 4.4 Phase 2 Output Contract
 - deterministic dose and unit cascade output at `scenario x geography x module x segment x month`

@@ -16,6 +16,9 @@ from ..constants import (
     PHASE1_MODULES,
     PHASE2_BUILD_SCOPE,
     PHASE2_UPSTREAM_DEMAND_CONTRACT,
+    PHASE3_BUILD_SCOPE,
+    PHASE3_DISABLED_CAPABILITIES,
+    PHASE3_UPSTREAM_DEMAND_CONTRACT,
     SUPPORTED_CO_PACK_MODES,
     SUPPORTED_DEMAND_BASES,
     SUPPORTED_DOSE_BASES,
@@ -139,10 +142,26 @@ CML_PREVALENT_HEADERS = (
 )
 TRADE_HEADERS = (
     "scenario_name",
+    "trade_row_type",
     "module",
     "geography_code",
-    "trade_rule_placeholder",
-    "inventory_rule_placeholder",
+    "sublayer1_target_weeks_on_hand",
+    "sublayer2_target_weeks_on_hand",
+    "sublayer2_wastage_rate",
+    "initial_stocking_units_per_new_site",
+    "ss_units_per_new_site",
+    "sublayer1_launch_fill_months_of_demand",
+    "rems_certification_lag_weeks",
+    "january_softening_enabled",
+    "january_softening_factor",
+    "bullwhip_flag_threshold",
+    "channel_fill_start_prelaunch_weeks",
+    "sublayer2_fill_distribution_weeks",
+    "weeks_per_month",
+    "site_activation_rate",
+    "certified_sites_at_launch",
+    "certified_sites_at_peak",
+    "launch_month_index",
     "active_flag",
     "notes",
 )
@@ -151,6 +170,7 @@ ALLOWED_PARAMETER_SCOPES = ("scenario_default", "module_override")
 ALLOWED_WORKBOOK_VIALING_RULES = ("patient_dose_ceiling",)
 ALLOWED_PARTIAL_PACK_HANDLING = ("full_pack_consumed",)
 ALLOWED_EXHAUSTION_RULES = ("track_vs_pool", "placeholder_metadata_only", "validate_only")
+ALLOWED_TRADE_ROW_TYPES = ("scenario_default", "geography_default", "launch_event")
 ENGINE_VIALING_RULE_BY_WORKBOOK_VALUE = {"patient_dose_ceiling": "ceil_mg_per_unit_no_sharing"}
 
 
@@ -243,6 +263,9 @@ def import_model_assumptions_workbook(
         launch_timing_rows=launch_timing_rows,
         cml_prevalent_rows=cml_prevalent_rows,
     )
+    resolved_phase3 = _resolve_phase3_config(
+        trade_rows=trade_rows,
+    )
 
     resolved_output_dir = _resolve_output_dir(
         workbook_path=workbook_path,
@@ -263,6 +286,7 @@ def import_model_assumptions_workbook(
         cml_prevalent_rows=cml_prevalent_rows,
         trade_rows=trade_rows,
         resolved_phase2=resolved_phase2,
+        resolved_phase3=resolved_phase3,
         workbook_path=workbook_path.resolve(),
         warnings=warnings,
     )
@@ -982,20 +1006,222 @@ def _normalize_trade_future_hooks(
     scenario_name: str,
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+    active_keys: set[tuple[str, str, str]] = set()
     for index, row in enumerate(raw_rows, start=2):
         if _is_blank_row(row, TRADE_HEADERS):
             continue
         _validate_optional_scenario_name(row, allowed_scenario_names, "Trade_Inventory_FutureHooks", index)
-        module = _require_module_or_all(row, "Trade_Inventory_FutureHooks", index)
+        trade_row_type = _require_nonempty(row, "trade_row_type", "Trade_Inventory_FutureHooks", index)
+        if trade_row_type not in ALLOWED_TRADE_ROW_TYPES:
+            raise ValueError(
+                f"Trade_Inventory_FutureHooks row {index} has unsupported trade_row_type {trade_row_type!r}."
+            )
+        module = _normalize_scope_value(row.get("module", ""))
         geography_code = _normalize_scope_value(row.get("geography_code", ""))
         active_flag = _parse_boolish(row.get("active_flag", ""), "active_flag", "Trade_Inventory_FutureHooks", index)
+        key = (trade_row_type, module, geography_code)
+        if active_flag and key in active_keys:
+            raise ValueError(
+                f"Trade_Inventory_FutureHooks row {index} duplicates active scope {key!r}. Keep trade rows unique by trade_row_type, module, and geography."
+            )
+        if active_flag:
+            active_keys.add(key)
+
+        scenario_values: dict[str, str] = {
+            "sublayer1_target_weeks_on_hand": "",
+            "sublayer2_target_weeks_on_hand": "",
+            "sublayer2_wastage_rate": "",
+            "initial_stocking_units_per_new_site": "",
+            "ss_units_per_new_site": "",
+            "sublayer1_launch_fill_months_of_demand": "",
+            "rems_certification_lag_weeks": "",
+            "january_softening_enabled": "",
+            "january_softening_factor": "",
+            "bullwhip_flag_threshold": "",
+            "channel_fill_start_prelaunch_weeks": "",
+            "sublayer2_fill_distribution_weeks": "",
+            "weeks_per_month": "",
+            "site_activation_rate": "",
+            "certified_sites_at_launch": "",
+            "certified_sites_at_peak": "",
+            "launch_month_index": "",
+        }
+
+        if trade_row_type == "scenario_default":
+            if module != "ALL" or geography_code != "ALL":
+                raise ValueError(
+                    f"Trade_Inventory_FutureHooks row {index} must use module='ALL' and geography_code='ALL' for trade_row_type='scenario_default'."
+                )
+            scenario_values.update(
+                {
+                    "sublayer1_target_weeks_on_hand": _format_numeric(
+                        _parse_positive_float(
+                            row.get("sublayer1_target_weeks_on_hand", ""),
+                            "sublayer1_target_weeks_on_hand",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "sublayer2_target_weeks_on_hand": _format_numeric(
+                        _parse_positive_float(
+                            row.get("sublayer2_target_weeks_on_hand", ""),
+                            "sublayer2_target_weeks_on_hand",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "sublayer2_wastage_rate": _format_numeric(
+                        _parse_probability(
+                            row.get("sublayer2_wastage_rate", ""),
+                            "sublayer2_wastage_rate",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "initial_stocking_units_per_new_site": _format_numeric(
+                        _parse_positive_float(
+                            row.get("initial_stocking_units_per_new_site", ""),
+                            "initial_stocking_units_per_new_site",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ss_units_per_new_site": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ss_units_per_new_site", ""),
+                            "ss_units_per_new_site",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "sublayer1_launch_fill_months_of_demand": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("sublayer1_launch_fill_months_of_demand", ""),
+                            "sublayer1_launch_fill_months_of_demand",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "rems_certification_lag_weeks": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("rems_certification_lag_weeks", ""),
+                            "rems_certification_lag_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "january_softening_enabled": _format_boolish(
+                        _parse_boolish(
+                            row.get("january_softening_enabled", ""),
+                            "january_softening_enabled",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "january_softening_factor": _format_numeric(
+                        _parse_probability(
+                            row.get("january_softening_factor", ""),
+                            "january_softening_factor",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "bullwhip_flag_threshold": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("bullwhip_flag_threshold", ""),
+                            "bullwhip_flag_threshold",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "channel_fill_start_prelaunch_weeks": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("channel_fill_start_prelaunch_weeks", ""),
+                            "channel_fill_start_prelaunch_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "sublayer2_fill_distribution_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("sublayer2_fill_distribution_weeks", ""),
+                            "sublayer2_fill_distribution_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "weeks_per_month": _format_numeric(
+                        _parse_positive_float(
+                            row.get("weeks_per_month", ""),
+                            "weeks_per_month",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                }
+            )
+        elif trade_row_type == "geography_default":
+            if module != "ALL":
+                raise ValueError(
+                    f"Trade_Inventory_FutureHooks row {index} must use module='ALL' for trade_row_type='geography_default'."
+                )
+            if geography_code == "ALL":
+                raise ValueError(
+                    f"Trade_Inventory_FutureHooks row {index} must provide a real geography_code for trade_row_type='geography_default'."
+                )
+            scenario_values.update(
+                {
+                    "site_activation_rate": _format_numeric(
+                        _parse_positive_float(
+                            row.get("site_activation_rate", ""),
+                            "site_activation_rate",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "certified_sites_at_launch": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("certified_sites_at_launch", ""),
+                            "certified_sites_at_launch",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "certified_sites_at_peak": _format_numeric(
+                        _parse_positive_float(
+                            row.get("certified_sites_at_peak", ""),
+                            "certified_sites_at_peak",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                }
+            )
+        else:
+            if module not in PHASE1_MODULES:
+                raise ValueError(
+                    f"Trade_Inventory_FutureHooks row {index} must use a supported module for trade_row_type='launch_event'."
+                )
+            if geography_code == "ALL":
+                raise ValueError(
+                    f"Trade_Inventory_FutureHooks row {index} must provide a real geography_code for trade_row_type='launch_event'."
+                )
+            scenario_values["launch_month_index"] = _format_optional_int(
+                _parse_positive_int(
+                    row.get("launch_month_index", ""),
+                    "launch_month_index",
+                    "Trade_Inventory_FutureHooks",
+                    index,
+                )
+            )
+
         rows.append(
             {
                 "scenario_name": scenario_name,
+                "trade_row_type": trade_row_type,
                 "module": module,
                 "geography_code": geography_code,
-                "trade_rule_placeholder": row.get("trade_rule_placeholder", "").strip(),
-                "inventory_rule_placeholder": row.get("inventory_rule_placeholder", "").strip(),
+                **scenario_values,
                 "active_flag": _format_boolish(active_flag),
                 "notes": row.get("notes", "").strip(),
             }
@@ -1193,6 +1419,106 @@ def _resolve_phase2_config(
     return phase2_config, warnings
 
 
+def _resolve_phase3_config(
+    *,
+    trade_rows: list[dict[str, str]],
+) -> dict[str, object]:
+    active_trade_rows = _active_rows(trade_rows)
+    scenario_default_row = _find_active_row(
+        active_trade_rows,
+        sheet_name="Trade_Inventory_FutureHooks",
+        required_fields={"trade_row_type": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide one active scenario_default row with module = ALL and geography_code = ALL.",
+    )
+
+    geography_default_rows = [
+        row for row in active_trade_rows if row["trade_row_type"] == "geography_default"
+    ]
+    if not geography_default_rows:
+        raise ValueError(
+            "Trade_Inventory_FutureHooks requires at least one active geography_default row for Phase 3."
+        )
+
+    launch_event_rows = [
+        row for row in active_trade_rows if row["trade_row_type"] == "launch_event"
+    ]
+    if not launch_event_rows:
+        raise ValueError(
+            "Trade_Inventory_FutureHooks requires active launch_event rows for Phase 3."
+        )
+
+    geography_defaults: dict[str, dict[str, float]] = {}
+    launch_events: dict[str, dict[str, dict[str, int]]] = {}
+    for geography_row in geography_default_rows:
+        geography_code = geography_row["geography_code"]
+        geography_defaults[geography_code] = {
+            "site_activation_rate": float(geography_row["site_activation_rate"]),
+            "certified_sites_at_launch": float(geography_row["certified_sites_at_launch"]),
+            "certified_sites_at_peak": float(geography_row["certified_sites_at_peak"]),
+        }
+        for module in PHASE1_MODULES:
+            launch_row = _find_active_row(
+                active_trade_rows,
+                sheet_name="Trade_Inventory_FutureHooks",
+                required_fields={
+                    "trade_row_type": "launch_event",
+                    "module": module,
+                    "geography_code": geography_code,
+                },
+                error_hint=(
+                    "Provide one active launch_event row per module and geography to build the active deterministic Phase 3 config."
+                ),
+            )
+            launch_events.setdefault(module, {})[geography_code] = {
+                "launch_month_index": int(launch_row["launch_month_index"])
+            }
+
+    return {
+        "model": {
+            "phase": 3,
+            "build_scope": PHASE3_BUILD_SCOPE,
+            "upstream_demand_contract": PHASE3_UPSTREAM_DEMAND_CONTRACT,
+        },
+        "modules": {
+            "enabled": list(PHASE1_MODULES),
+            "disabled": list(PHASE3_DISABLED_CAPABILITIES),
+        },
+        "trade": {
+            "sublayer1_target_weeks_on_hand": float(scenario_default_row["sublayer1_target_weeks_on_hand"]),
+            "sublayer2_target_weeks_on_hand": float(scenario_default_row["sublayer2_target_weeks_on_hand"]),
+            "sublayer2_wastage_rate": float(scenario_default_row["sublayer2_wastage_rate"]),
+            "initial_stocking_units_per_new_site": float(scenario_default_row["initial_stocking_units_per_new_site"]),
+            "ss_units_per_new_site": float(scenario_default_row["ss_units_per_new_site"]),
+            "sublayer1_launch_fill_months_of_demand": float(
+                scenario_default_row["sublayer1_launch_fill_months_of_demand"]
+            ),
+            "rems_certification_lag_weeks": float(scenario_default_row["rems_certification_lag_weeks"]),
+            "january_softening_enabled": _parse_stored_bool(
+                scenario_default_row["january_softening_enabled"]
+            ),
+            "january_softening_factor": float(scenario_default_row["january_softening_factor"]),
+            "bullwhip_flag_threshold": float(scenario_default_row["bullwhip_flag_threshold"]),
+            "channel_fill_start_prelaunch_weeks": float(
+                scenario_default_row["channel_fill_start_prelaunch_weeks"]
+            ),
+            "sublayer2_fill_distribution_weeks": float(
+                scenario_default_row["sublayer2_fill_distribution_weeks"]
+            ),
+            "weeks_per_month": float(scenario_default_row["weeks_per_month"]),
+        },
+        "geography_defaults": geography_defaults,
+        "launch_events": launch_events,
+        "validation": {
+            "enforce_unique_output_keys": True,
+        },
+        "wiring_notes": [
+            "Trade_Inventory_FutureHooks scenario_default row feeds trade.* in the active deterministic Phase 3 config.",
+            "Trade_Inventory_FutureHooks geography_default rows feed geography_defaults.<geography> site activation and certified site assumptions.",
+            "Trade_Inventory_FutureHooks launch_event rows feed launch_events.<module>.<geography>.launch_month_index.",
+        ],
+    }
+
+
 def _write_assumption_outputs(
     *,
     output_dir: Path,
@@ -1208,6 +1534,7 @@ def _write_assumption_outputs(
     cml_prevalent_rows: list[dict[str, str]],
     trade_rows: list[dict[str, str]],
     resolved_phase2: dict[str, object],
+    resolved_phase3: dict[str, object],
     workbook_path: Path,
     warnings: list[str],
 ) -> dict[str, Path]:
@@ -1224,9 +1551,12 @@ def _write_assumption_outputs(
         "cml_prevalent_assumptions": output_dir / "cml_prevalent_assumptions.csv",
         "trade_inventory_futurehooks": output_dir / "trade_inventory_futurehooks.csv",
         "resolved_phase2_snapshot": output_dir / "resolved_phase2_config_snapshot.json",
+        "resolved_phase3_snapshot": output_dir / "resolved_phase3_config_snapshot.json",
         "import_summary": output_dir / "assumptions_import_summary.json",
         "generated_phase2_parameters": output_dir / "generated_phase2_parameters.toml",
         "generated_phase2_scenario": output_dir / "generated_phase2_scenario.toml",
+        "generated_phase3_parameters": output_dir / "generated_phase3_parameters.toml",
+        "generated_phase3_scenario": output_dir / "generated_phase3_scenario.toml",
     }
     _write_csv(file_paths["scenario_controls"], SCENARIO_CONTROLS_HEADERS, scenario_controls_rows)
     _write_csv(file_paths["launch_timing"], LAUNCH_TIMING_HEADERS, launch_timing_rows)
@@ -1254,6 +1584,16 @@ def _write_assumption_outputs(
         ),
         encoding="utf-8",
     )
+    file_paths["resolved_phase3_snapshot"].write_text(
+        json.dumps(
+            {
+                "scenario_name": context.scenario_name,
+                "resolved_phase3": resolved_phase3,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     _write_generated_phase2_parameters(
         file_paths["generated_phase2_parameters"],
@@ -1264,6 +1604,16 @@ def _write_assumption_outputs(
         scenario_name=context.scenario_name,
         parameter_config_path=file_paths["generated_phase2_parameters"],
         scenario_output_path=file_paths["generated_phase2_scenario"],
+    )
+    _write_generated_phase3_parameters(
+        file_paths["generated_phase3_parameters"],
+        resolved_phase3,
+    )
+    _write_generated_phase3_scenario(
+        output_dir=output_dir,
+        scenario_name=context.scenario_name,
+        parameter_config_path=file_paths["generated_phase3_parameters"],
+        scenario_output_path=file_paths["generated_phase3_scenario"],
     )
 
     summary_payload = {
@@ -1296,11 +1646,12 @@ def _write_assumption_outputs(
             "Yield_Assumptions scenario_default row -> yield.plan.* and ds.overage_factor",
             "Product_Parameters scenario_default row -> ds.qty_per_dp_unit_mg",
             "SS_Assumptions scenario default row -> ss.ratio_to_fg and model.co_pack_mode",
+            "Trade_Inventory_FutureHooks scenario_default / geography_default / launch_event rows -> active deterministic Phase 3 config generation",
         ],
         "future_ready_only": [
             "Launch_Timing normalized only; not yet wired into active engine logic.",
             "CML_Prevalent_Assumptions normalized only; not yet wired into active Phase 2 config generation.",
-            "Trade_Inventory_FutureHooks normalized only; future-phase placeholder.",
+            "Broader future-phase inventory logic remains deferred even though Trade_Inventory_FutureHooks now feeds the active deterministic Phase 3 trade config.",
             "Product_Parameters module_override ds_qty_per_dp_unit_mg rows are preserved but not yet consumed by the current engine.",
             "Yield_Assumptions module_override ds_overage_factor rows are preserved but not yet consumed by the current engine.",
             "dp_concentration_mg_per_ml and dp_fill_volume_ml are preserved but not yet consumed by the current engine.",
@@ -1415,6 +1766,105 @@ def _write_generated_phase2_scenario(
                 "",
                 "[outputs]",
                 f'deterministic_cascade = "{output_ref}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_generated_phase3_parameters(path: Path, resolved_phase3: dict[str, object]) -> None:
+    model = resolved_phase3["model"]
+    modules = resolved_phase3["modules"]
+    trade = resolved_phase3["trade"]
+    geography_defaults = resolved_phase3["geography_defaults"]
+    launch_events = resolved_phase3["launch_events"]
+    validation = resolved_phase3["validation"]
+
+    lines = [
+        "# GENERATED BY scripts/assumptions_import.py",
+        "# Business-facing assumptions workbook bridge into the current Phase 3 config path.",
+        "",
+        "[model]",
+        f'phase = {model["phase"]}',
+        f'build_scope = "{model["build_scope"]}"',
+        f'upstream_demand_contract = "{model["upstream_demand_contract"]}"',
+        "",
+        "[modules]",
+        f'enabled = {_toml_list(modules["enabled"])}',
+        f'disabled = {_toml_list(modules["disabled"])}',
+        "",
+        "[trade]",
+        f'sublayer1_target_weeks_on_hand = {trade["sublayer1_target_weeks_on_hand"]}',
+        f'sublayer2_target_weeks_on_hand = {trade["sublayer2_target_weeks_on_hand"]}',
+        f'sublayer2_wastage_rate = {trade["sublayer2_wastage_rate"]}',
+        f'initial_stocking_units_per_new_site = {trade["initial_stocking_units_per_new_site"]}',
+        f'ss_units_per_new_site = {trade["ss_units_per_new_site"]}',
+        f'sublayer1_launch_fill_months_of_demand = {trade["sublayer1_launch_fill_months_of_demand"]}',
+        f'rems_certification_lag_weeks = {trade["rems_certification_lag_weeks"]}',
+        f'january_softening_enabled = {_toml_bool(trade["january_softening_enabled"])}',
+        f'january_softening_factor = {trade["january_softening_factor"]}',
+        f'bullwhip_flag_threshold = {trade["bullwhip_flag_threshold"]}',
+        f'channel_fill_start_prelaunch_weeks = {trade["channel_fill_start_prelaunch_weeks"]}',
+        f'sublayer2_fill_distribution_weeks = {trade["sublayer2_fill_distribution_weeks"]}',
+        f'weeks_per_month = {trade["weeks_per_month"]}',
+        "",
+    ]
+    for geography_code, geography_values in geography_defaults.items():
+        lines.extend(
+            [
+                f"[geography_defaults.{geography_code}]",
+                f'site_activation_rate = {geography_values["site_activation_rate"]}',
+                f'certified_sites_at_launch = {geography_values["certified_sites_at_launch"]}',
+                f'certified_sites_at_peak = {geography_values["certified_sites_at_peak"]}',
+                "",
+            ]
+        )
+    for module in PHASE1_MODULES:
+        module_launch_events = launch_events[module]
+        for geography_code, event_values in module_launch_events.items():
+            lines.extend(
+                [
+                    f"[launch_events.{module}.{geography_code}]",
+                    f'launch_month_index = {event_values["launch_month_index"]}',
+                    "",
+                ]
+            )
+    lines.extend(
+        [
+            "[validation]",
+            f'enforce_unique_output_keys = {_toml_bool(validation["enforce_unique_output_keys"])}',
+            "",
+        ]
+    )
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_generated_phase3_scenario(
+    *,
+    output_dir: Path,
+    scenario_name: str,
+    parameter_config_path: Path,
+    scenario_output_path: Path,
+) -> None:
+    default_phase2_output = output_dir.parent / "phase2_deterministic_cascade.csv"
+    deterministic_trade_output = output_dir.parent / "phase3_trade_layer.csv"
+    parameter_ref = _relative_path_for_toml(parameter_config_path, start=output_dir)
+    input_ref = _relative_path_for_toml(default_phase2_output, start=output_dir)
+    output_ref = _relative_path_for_toml(deterministic_trade_output, start=output_dir)
+    scenario_output_path.write_text(
+        "\n".join(
+            [
+                "# GENERATED BY scripts/assumptions_import.py",
+                "# Use directly with scripts/run_phase3.py or let scripts/run_forecast_workflow.py consume it.",
+                f'scenario_name = "{scenario_name}"',
+                f'parameter_config = "{parameter_ref}"',
+                "",
+                "[inputs]",
+                f'phase2_deterministic_cascade = "{input_ref}"',
+                "",
+                "[outputs]",
+                f'deterministic_trade_layer = "{output_ref}"',
                 "",
             ]
         ),

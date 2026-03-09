@@ -268,10 +268,18 @@ def test_patient_starts_mode_builds_continuing_census_and_rolloff(tmp_path: Path
 
     assert not result.validation.has_errors
     assert output_map[("AML", "1L_fit", 1)].patients_treated == 10.0
+    assert output_map[("AML", "1L_fit", 1)].patients_active == 10.0
+    assert output_map[("AML", "1L_fit", 1)].patient_starts == 10.0
     assert output_map[("AML", "1L_fit", 2)].patients_treated == 20.0
-    assert output_map[("AML", "1L_fit", 2)].continuing_patients == 10.0
+    assert output_map[("AML", "1L_fit", 2)].patients_active == 20.0
+    assert output_map[("AML", "1L_fit", 2)].patient_starts == 10.0
+    assert output_map[("AML", "1L_fit", 2)].patients_continuing == 10.0
+    assert output_map[("AML", "1L_fit", 2)].patients_treated == output_map[("AML", "1L_fit", 2)].patients_active
     assert output_map[("AML", "1L_fit", 13)].patients_treated == 10.0
-    assert output_map[("AML", "1L_fit", 13)].rolloff_patients == 10.0
+    assert output_map[("AML", "1L_fit", 13)].patients_active == 10.0
+    assert output_map[("AML", "1L_fit", 13)].patient_starts == 0.0
+    assert output_map[("AML", "1L_fit", 13)].patients_continuing == 10.0
+    assert output_map[("AML", "1L_fit", 13)].patients_rolloff == 10.0
     assert ("AML", "1L_fit", 14) not in output_map
 
 

@@ -1,4 +1,4 @@
-"""One-command workbook import plus deterministic Phase 2 workflow runner."""
+"""One-command workbook import plus deterministic Phase 2 and optional Phase 3 workflow runner."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Import a Commercial forecast workbook, generate authoritative monthlyized_output.csv, "
-            "and run the deterministic Phase 2 cascade."
+            "run the deterministic Phase 2 cascade, and optionally run the deterministic Phase 3 trade layer."
         )
     )
     parser.add_argument(
@@ -44,15 +44,26 @@ def parse_args() -> argparse.Namespace:
         help="Optional Phase 2 scenario template to use as the parameter_config source. Defaults to config/scenarios/base_phase2.toml when --assumptions-workbook is not provided.",
     )
     parser.add_argument(
+        "--phase3-scenario",
+        type=Path,
+        default=None,
+        help="Optional Phase 3 scenario template to use when --run-phase3 is enabled and --assumptions-workbook is not provided. Defaults to config/scenarios/base_phase3.toml.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
-        help="Optional directory for imported Phase 1 outputs, generated Phase 2 scenario, and Phase 2 cascade output.",
+        help="Optional directory for imported Phase 1 outputs, generated workflow scenarios, Phase 2 cascade output, and optional Phase 3 trade output.",
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Allow writing into an existing non-empty output directory.",
+    )
+    parser.add_argument(
+        "--run-phase3",
+        action="store_true",
+        help="Run the deterministic Phase 3 trade layer after Phase 2.",
     )
     return parser.parse_args()
 
@@ -65,8 +76,10 @@ def main() -> int:
             assumptions_workbook=args.assumptions_workbook,
             scenario_name=args.scenario_name,
             phase2_scenario=args.phase2_scenario,
+            phase3_scenario=args.phase3_scenario,
             output_dir=args.output_dir,
             overwrite=args.overwrite,
+            run_phase3=args.run_phase3,
         )
     except (FileNotFoundError, NotADirectoryError, FileExistsError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

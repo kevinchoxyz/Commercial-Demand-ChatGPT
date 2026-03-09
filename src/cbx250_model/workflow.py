@@ -1,4 +1,4 @@
-"""Thin end-to-end workflow wrapper for workbook import plus Phase 2 cascade."""
+"""Thin end-to-end workflow wrapper for workbook import plus Phase 2 and optional Phase 3."""
 
 from __future__ import annotations
 
@@ -15,6 +15,9 @@ from .outputs.summary import format_validation_report
 from .phase2.runner import Phase2RunResult, run_phase2_scenario
 from .phase2.summary import build_phase2_run_summary
 from .phase2.writer import write_phase2_outputs
+from .phase3.runner import Phase3RunResult, run_phase3_scenario
+from .phase3.summary import build_phase3_run_summary
+from .phase3.writer import write_phase3_outputs
 
 
 @dataclass(frozen=True)
@@ -26,11 +29,15 @@ class ForecastWorkflowResult:
     assumptions_output_dir: Path | None
     phase2_template_path: Path
     generated_phase2_scenario_path: Path
+    phase3_template_path: Path | None
+    generated_phase3_scenario_path: Path | None
     phase1_monthlyized_output_path: Path
     phase2_output_path: Path
+    phase3_output_path: Path | None
     assumptions_result: AssumptionsImportResult | None
     import_result: WorkbookImportResult
     phase2_result: Phase2RunResult
+    phase3_result: Phase3RunResult | None
     summary: dict[str, object]
 
 
@@ -40,8 +47,10 @@ def run_forecast_workflow(
     assumptions_workbook: str | Path | None = None,
     scenario_name: str | None = None,
     phase2_scenario: str | Path | None = None,
+    phase3_scenario: str | Path | None = None,
     output_dir: str | Path | None = None,
     overwrite: bool = False,
+    run_phase3: bool = False,
 ) -> ForecastWorkflowResult:
     repo_root = Path(__file__).resolve().parents[2]
     resolved_workbook_path = Path(workbook_path).resolve()
@@ -73,11 +82,19 @@ def run_forecast_workflow(
             workflow_warnings.append(
                 f"assumptions_workbook was provided, so phase2_scenario {Path(phase2_scenario).resolve()} was ignored."
             )
+        if run_phase3 and phase3_scenario is not None:
+            workflow_warnings.append(
+                f"assumptions_workbook was provided, so phase3_scenario {Path(phase3_scenario).resolve()} was ignored."
+            )
         assumptions_output_dir = (resolved_output_dir / "assumptions").resolve()
         assumptions_result = _run_assumptions_import_step(
             workbook_path=resolved_assumptions_workbook_path,
             output_dir=assumptions_output_dir,
             scenario_name=effective_scenario_name,
+        )
+    elif phase3_scenario is not None and not run_phase3:
+        workflow_warnings.append(
+            f"phase3_scenario {Path(phase3_scenario).resolve()} was ignored because run_phase3 was not enabled."
         )
 
     import_result = _run_import_step(
@@ -128,6 +145,33 @@ def run_forecast_workflow(
         phase2_result.config.output_paths.deterministic_cascade,
         phase2_result.outputs,
     )
+    phase3_template_path: Path | None = None
+    generated_phase3_scenario_path: Path | None = None
+    phase3_result: Phase3RunResult | None = None
+    phase3_output_path: Path | None = None
+    if run_phase3:
+        phase3_template_path = _resolve_phase3_template_path(
+            repo_root=repo_root,
+            assumptions_result=assumptions_result,
+            phase3_scenario=phase3_scenario,
+        )
+        if not phase3_template_path.exists() or not phase3_template_path.is_file():
+            raise FileNotFoundError(f"Phase 3 scenario template not found: {phase3_template_path}")
+
+        generated_phase3_scenario_path = _write_generated_phase3_scenario(
+            template_scenario_path=phase3_template_path,
+            output_dir=resolved_output_dir,
+            scenario_name=import_result.context.scenario_name,
+            phase2_deterministic_cascade_path=phase2_output_path,
+        )
+        phase3_result = run_phase3_scenario(generated_phase3_scenario_path)
+        if phase3_result.validation.has_errors:
+            rendered_report = format_validation_report(phase3_result.validation)
+            raise ValueError(f"Phase 3 validation failed.\n{rendered_report}")
+        phase3_output_path = write_phase3_outputs(
+            phase3_result.config.output_paths.deterministic_trade_layer,
+            phase3_result.outputs,
+        )
     summary = build_workflow_summary(
         assumptions_result=assumptions_result,
         import_result=import_result,
@@ -135,6 +179,10 @@ def run_forecast_workflow(
         phase2_output_path=phase2_output_path,
         phase2_template_path=phase2_template_path,
         generated_phase2_scenario_path=generated_phase2_scenario_path,
+        phase3_result=phase3_result,
+        phase3_output_path=phase3_output_path,
+        phase3_template_path=phase3_template_path,
+        generated_phase3_scenario_path=generated_phase3_scenario_path,
         workflow_warnings=tuple(workflow_warnings),
     )
     return ForecastWorkflowResult(
@@ -145,11 +193,15 @@ def run_forecast_workflow(
         assumptions_output_dir=assumptions_output_dir,
         phase2_template_path=phase2_template_path,
         generated_phase2_scenario_path=generated_phase2_scenario_path,
+        phase3_template_path=phase3_template_path,
+        generated_phase3_scenario_path=generated_phase3_scenario_path,
         phase1_monthlyized_output_path=monthlyized_output_path,
         phase2_output_path=phase2_output_path,
+        phase3_output_path=phase3_output_path,
         assumptions_result=assumptions_result,
         import_result=import_result,
         phase2_result=phase2_result,
+        phase3_result=phase3_result,
         summary=summary,
     )
 
@@ -162,6 +214,10 @@ def build_workflow_summary(
     phase2_output_path: Path,
     phase2_template_path: Path,
     generated_phase2_scenario_path: Path,
+    phase3_result: Phase3RunResult | None,
+    phase3_output_path: Path | None,
+    phase3_template_path: Path | None,
+    generated_phase3_scenario_path: Path | None,
     workflow_warnings: tuple[str, ...],
 ) -> dict[str, object]:
     phase2_summary = build_phase2_run_summary(phase2_result, str(phase2_output_path))
@@ -174,17 +230,23 @@ def build_workflow_summary(
         "phase1_monthlyized_output": str(import_result.file_paths["monthlyized_output"]),
         "phase2_deterministic_cascade": str(phase2_output_path),
     }
+    phase3_summary: dict[str, object] | None = None
+    if phase3_result is not None and phase3_output_path is not None:
+        authoritative_output_files["phase3_trade_layer"] = str(phase3_output_path)
+        phase3_summary = build_phase3_run_summary(phase3_result, str(phase3_output_path))
     assumptions_artifacts = None
     if assumptions_result is not None:
         assumptions_artifacts = {
             "assumptions_output_dir": str(assumptions_result.output_dir),
             "generated_phase2_scenario": str(assumptions_result.file_paths["generated_phase2_scenario"]),
             "generated_phase2_parameters": str(assumptions_result.file_paths["generated_phase2_parameters"]),
+            "generated_phase3_scenario": str(assumptions_result.file_paths["generated_phase3_scenario"]),
+            "generated_phase3_parameters": str(assumptions_result.file_paths["generated_phase3_parameters"]),
             "treatment_duration_assumptions": str(
                 assumptions_result.file_paths["treatment_duration_assumptions"]
             ),
         }
-    return {
+    summary = {
         "scenario_name": import_result.context.scenario_name,
         "forecast_grain": import_result.context.forecast_grain,
         "forecast_frequency": import_result.context.forecast_frequency,
@@ -208,6 +270,33 @@ def build_workflow_summary(
         "workflow_warning_count": len(workflow_warnings),
         "workflow_warnings": list(workflow_warnings),
     }
+    if phase3_summary is not None and phase3_template_path is not None and generated_phase3_scenario_path is not None:
+        summary.update(
+            {
+                "phase3_ran": True,
+                "phase3_input_row_count": phase3_summary["input_row_count"],
+                "phase3_output_row_count": phase3_summary["output_row_count"],
+                "phase3_output_rows_by_module": phase3_summary["output_rows_by_module"],
+                "total_patient_fg_demand_units": phase3_summary["total_patient_fg_demand_units"],
+                "total_sublayer2_pull_units": phase3_summary["total_sublayer2_pull_units"],
+                "total_ex_factory_fg_demand_units": phase3_summary["total_ex_factory_fg_demand_units"],
+                "total_ss_site_stocking_units": phase3_summary["total_ss_site_stocking_units"],
+                "bullwhip_flag_row_count": phase3_summary["bullwhip_flag_row_count"],
+                "phase3_validation_issue_count": phase3_summary["validation_issue_count"],
+                "phase3_authoritative_output_file": phase3_summary["authoritative_output_file"],
+                "phase3_parameter_source": (
+                    "assumptions_workbook"
+                    if assumptions_result is not None
+                    else "phase3_scenario_template"
+                ),
+                "phase3_parameter_template_used": str(phase3_template_path),
+                "phase3_parameter_config_used": str(phase3_result.config.parameter_config_path),
+                "generated_phase3_scenario": str(generated_phase3_scenario_path),
+            }
+        )
+    else:
+        summary["phase3_ran"] = False
+    return summary
 
 
 def _run_import_step(
@@ -280,6 +369,19 @@ def _resolve_phase2_template_path(
     return (repo_root / "config" / "scenarios" / "base_phase2.toml").resolve()
 
 
+def _resolve_phase3_template_path(
+    *,
+    repo_root: Path,
+    assumptions_result: AssumptionsImportResult | None,
+    phase3_scenario: str | Path | None,
+) -> Path:
+    if assumptions_result is not None:
+        return assumptions_result.file_paths["generated_phase3_scenario"].resolve()
+    if phase3_scenario is not None:
+        return Path(phase3_scenario).resolve()
+    return (repo_root / "config" / "scenarios" / "base_phase3.toml").resolve()
+
+
 def _write_generated_phase2_scenario(
     *,
     template_scenario_path: Path,
@@ -322,6 +424,56 @@ def _write_generated_phase2_scenario(
                 "",
                 "[outputs]",
                 f'deterministic_cascade = "{output_ref}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return generated_scenario_path
+
+
+def _write_generated_phase3_scenario(
+    *,
+    template_scenario_path: Path,
+    output_dir: Path,
+    scenario_name: str,
+    phase2_deterministic_cascade_path: Path,
+) -> Path:
+    template_data = _load_toml(template_scenario_path)
+    raw_parameter_config = template_data.get("parameter_config")
+    if not isinstance(raw_parameter_config, str) or not raw_parameter_config.strip():
+        raise ValueError(
+            f"Phase 3 scenario template {template_scenario_path} is missing parameter_config."
+        )
+
+    parameter_config_path = _resolve_relative_path(
+        base_dir=template_scenario_path.parent,
+        raw_path=raw_parameter_config,
+    )
+    if not parameter_config_path.exists():
+        raise FileNotFoundError(
+            f"Phase 3 parameter_config referenced by template does not exist: {parameter_config_path}"
+        )
+
+    generated_scenario_path = output_dir / "generated_phase3_scenario.toml"
+    deterministic_trade_layer_path = output_dir / "phase3_trade_layer.csv"
+    parameter_config_ref = _relative_path_for_toml(parameter_config_path, start=output_dir)
+    input_ref = _relative_path_for_toml(phase2_deterministic_cascade_path, start=output_dir)
+    output_ref = _relative_path_for_toml(deterministic_trade_layer_path, start=output_dir)
+
+    generated_scenario_path.write_text(
+        "\n".join(
+            [
+                "# GENERATED BY scripts/run_forecast_workflow.py",
+                "# Thin orchestration layer around workbook import plus deterministic Phase 2 and optional Phase 3.",
+                f'scenario_name = "{scenario_name}"',
+                f'parameter_config = "{parameter_config_ref}"',
+                "",
+                "[inputs]",
+                f'phase2_deterministic_cascade = "{input_ref}"',
+                "",
+                "[outputs]",
+                f'deterministic_trade_layer = "{output_ref}"',
                 "",
             ]
         ),

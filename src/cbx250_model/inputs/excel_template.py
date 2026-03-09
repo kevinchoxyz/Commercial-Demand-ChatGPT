@@ -254,7 +254,7 @@ def _build_instructions_sheet() -> SheetSpec:
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "In Phase 1, the authoritative normalized workbook export is monthlyized_output.csv. In patient_starts mode that CSV contains treated census derived from starts plus cohort duration logic. The workbook tab is reference-only unless a future exporter explicitly writes rows back into it.",
+                "In Phase 1, the authoritative normalized workbook export is monthlyized_output.csv. It separates patient_starts, patients_continuing, patients_rolloff, and patients_active. patients_treated_monthly is retained temporarily as the backward-compatible alias of patients_active. The workbook tab is reference-only unless a future exporter explicitly writes rows back into it.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -978,6 +978,10 @@ def _build_monthlyized_output_sheet() -> SheetSpec:
         "month_index",
         "calendar_month",
         "patients_treated_monthly",
+        "patients_active",
+        "patient_starts",
+        "patients_continuing",
+        "patients_rolloff",
         "source_frequency",
         "source_grain",
         "source_sheet",
@@ -999,6 +1003,10 @@ def _build_monthlyized_output_sheet() -> SheetSpec:
             CellSpec(style_id=CALCULATED_STYLE_ID),
             CellSpec(style_id=CALCULATED_DATE_STYLE_ID),
             CellSpec(style_id=CALCULATED_DECIMAL_STYLE_ID),
+            CellSpec(style_id=CALCULATED_DECIMAL_STYLE_ID),
+            CellSpec(style_id=CALCULATED_DECIMAL_STYLE_ID),
+            CellSpec(style_id=CALCULATED_DECIMAL_STYLE_ID),
+            CellSpec(style_id=CALCULATED_DECIMAL_STYLE_ID),
             CellSpec(style_id=CALCULATED_STYLE_ID, formula="Inputs!$B$4"),
             CellSpec(style_id=CALCULATED_STYLE_ID, formula="Inputs!$B$3"),
             CellSpec("CSV export is authoritative", CALCULATED_STYLE_ID),
@@ -1009,7 +1017,7 @@ def _build_monthlyized_output_sheet() -> SheetSpec:
             CellSpec(style_id=CALCULATED_DECIMAL_STYLE_ID),
             CellSpec(style_id=CALCULATED_STYLE_ID),
             CellSpec(
-                "Reference tab only in Phase 1 unless a future exporter populates it. The authoritative normalized workbook export is monthlyized_output.csv written by the importer.",
+                "Reference tab only in Phase 1 unless a future exporter populates it. The authoritative normalized workbook export is monthlyized_output.csv written by the importer; patients_treated_monthly is the backward-compatible alias of patients_active.",
                 WRAP_STYLE_ID,
             ),
         )
@@ -1025,6 +1033,10 @@ def _build_monthlyized_output_sheet() -> SheetSpec:
                 CALCULATED_STYLE_ID,
                 CALCULATED_STYLE_ID,
                 CALCULATED_DATE_STYLE_ID,
+                CALCULATED_DECIMAL_STYLE_ID,
+                CALCULATED_DECIMAL_STYLE_ID,
+                CALCULATED_DECIMAL_STYLE_ID,
+                CALCULATED_DECIMAL_STYLE_ID,
                 CALCULATED_DECIMAL_STYLE_ID,
                 CALCULATED_STYLE_ID,
                 CALCULATED_STYLE_ID,
@@ -1042,9 +1054,9 @@ def _build_monthlyized_output_sheet() -> SheetSpec:
     return SheetSpec(
         name="Monthlyized_Output",
         rows=tuple(rows),
-        column_widths=(18, 18, 18, 18, 14, 18, 22, 18, 18, 24, 24, 18, 18, 20, 18, 24, 56),
+        column_widths=(18, 18, 18, 18, 14, 18, 22, 18, 18, 20, 18, 18, 18, 24, 24, 18, 18, 20, 18, 24, 56),
         freeze_cell="A2",
-        auto_filter_ref="A1:Q1",
+        auto_filter_ref="A1:U1",
     )
 
 

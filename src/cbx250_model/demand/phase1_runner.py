@@ -116,11 +116,11 @@ def _apply_patient_starts_cohort_logic(
                     segment_code=segment_code,
                     month_index=audit_row.month_index,
                     month_start=calendar.get_month(audit_row.month_index).month_start,
-                    patients_treated=audit_row.patients_treated,
+                    patients_treated=audit_row.patients_active,
                     demand_basis_used=config.model.demand_basis,
-                    starts_input=audit_row.starts_input,
-                    continuing_patients=audit_row.continuing_patients,
-                    rolloff_patients=audit_row.rolloff_patients,
+                    patient_starts=audit_row.patient_starts,
+                    patients_continuing=audit_row.patients_continuing,
+                    patients_rolloff=audit_row.patients_rolloff,
                     treatment_duration_months_used=treatment_duration_months,
                 )
             )

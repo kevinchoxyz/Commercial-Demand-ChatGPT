@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import csv
 import json
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -45,6 +46,12 @@ def _replace_zip_entry(workbook_path: Path, entry_path: str, payload: bytes) -> 
             for member in source_zip.infolist():
                 content = payload if member.filename == entry_path else source_zip.read(member.filename)
                 target_zip.writestr(member, content)
+    for _ in range(3):
+        try:
+            temp_path.replace(workbook_path)
+            return
+        except PermissionError:
+            time.sleep(0.1)
     temp_path.replace(workbook_path)
 
 
@@ -147,6 +154,13 @@ def test_import_commercial_forecast_workbook_monthly_mode_writes_normalized_phas
         segment_code="1L_fit",
         month_index="1",
     )["patients_treated_monthly"] == "10"
+    assert _find_row(
+        monthlyized_rows,
+        geography_code="US",
+        module="AML",
+        segment_code="1L_fit",
+        month_index="1",
+    )["patients_active"] == "10"
     assert _find_row(
         monthlyized_rows,
         geography_code="EU",
@@ -414,20 +428,22 @@ def test_import_commercial_forecast_workbook_patient_starts_mode_rolls_forward_t
         segment_code="1L_fit",
         month_index="2",
     )["patients_treated_monthly"] == "20"
-    assert _find_row(
+    month_13 = _find_row(
         monthlyized_rows,
         geography_code="US",
         module="AML",
         segment_code="1L_fit",
         month_index="13",
-    )["rolloff_patients"] == "10"
-    assert _find_row(
-        monthlyized_rows,
-        geography_code="US",
-        module="AML",
-        segment_code="1L_fit",
-        month_index="13",
-    )["treatment_duration_months_used"] == "12"
+    )
+    assert month_13["patients_treated_monthly"] == "10"
+    assert month_13["patients_active"] == "10"
+    assert month_13["patient_starts"] == "0"
+    assert month_13["patients_continuing"] == "10"
+    assert month_13["patients_rolloff"] == "10"
+    assert month_13["starts_input"] == month_13["patient_starts"]
+    assert month_13["continuing_patients"] == month_13["patients_continuing"]
+    assert month_13["rolloff_patients"] == month_13["patients_rolloff"]
+    assert month_13["treatment_duration_months_used"] == "12"
 
 
 def test_import_commercial_forecast_workbook_patient_starts_mode_requires_duration_artifact(

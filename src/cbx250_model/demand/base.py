@@ -23,9 +23,9 @@ class DemandOutputRecord:
     month_start: date
     patients_treated: float
     demand_basis_used: str = DEMAND_BASIS_TREATED_CENSUS
-    starts_input: float = 0.0
-    continuing_patients: float = 0.0
-    rolloff_patients: float = 0.0
+    patient_starts: float = 0.0
+    patients_continuing: float = 0.0
+    patients_rolloff: float = 0.0
     treatment_duration_months_used: int | None = None
 
     @property
@@ -37,6 +37,22 @@ class DemandOutputRecord:
             self.segment_code,
             self.month_index,
         )
+
+    @property
+    def patients_active(self) -> float:
+        return self.patients_treated
+
+    @property
+    def starts_input(self) -> float:
+        return self.patient_starts
+
+    @property
+    def continuing_patients(self) -> float:
+        return self.patients_continuing
+
+    @property
+    def rolloff_patients(self) -> float:
+        return self.patients_rolloff
 
 
 class DeterministicDemandModule:
@@ -54,9 +70,9 @@ class DeterministicDemandModule:
         patients_treated: float,
         calendar: MonthlyCalendar,
         demand_basis_used: str = DEMAND_BASIS_TREATED_CENSUS,
-        starts_input: float = 0.0,
-        continuing_patients: float = 0.0,
-        rolloff_patients: float = 0.0,
+        patient_starts: float = 0.0,
+        patients_continuing: float = 0.0,
+        patients_rolloff: float = 0.0,
         treatment_duration_months_used: int | None = None,
     ) -> DemandOutputRecord:
         month = calendar.get_month(month_index)
@@ -70,9 +86,9 @@ class DeterministicDemandModule:
             month_start=month.month_start,
             patients_treated=patients_treated,
             demand_basis_used=demand_basis_used,
-            starts_input=starts_input,
-            continuing_patients=continuing_patients,
-            rolloff_patients=rolloff_patients,
+            patient_starts=patient_starts,
+            patients_continuing=patients_continuing,
+            patients_rolloff=patients_rolloff,
             treatment_duration_months_used=treatment_duration_months_used,
         )
 

@@ -87,18 +87,18 @@ def _build_instructions_sheet() -> SheetSpec:
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "Users should edit Excel assumptions here rather than hand-editing TOML files. The importer converts these rows into normalized artifacts plus a generated Phase 2 parameter config.",
+                "Users should edit Excel assumptions here rather than hand-editing TOML files. The importer converts these rows into normalized artifacts plus generated Phase 2 and Phase 3 parameter configs.",
                 WRAP_STYLE_ID,
             ),
         ),
         (
             CellSpec("Scope", LABEL_STYLE_ID),
             CellSpec(
-                "Current scope covers Phase 1 and Phase 2 relevant assumptions only.",
+                "Current scope covers Phase 1, Phase 2, and the active deterministic Phase 3 trade layer assumptions.",
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "Trade, inventory, production scheduling, financials, Monte Carlo, and UI remain later-phase work. FutureHooks rows are preserved but not wired into active logic.",
+                "Production scheduling, inventory, financials, Monte Carlo, and UI remain later-phase work. Trade_Inventory_FutureHooks now wires the active deterministic Phase 3 trade config, but broader future-phase inventory behavior remains deferred.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -138,33 +138,33 @@ def _build_instructions_sheet() -> SheetSpec:
         (
             CellSpec("Current engine wiring", LABEL_STYLE_ID),
             CellSpec(
-                "The importer generates machine-readable CSV artifacts plus generated_phase2_parameters.toml and generated_phase2_scenario.toml.",
+                "The importer generates machine-readable CSV artifacts plus generated_phase2_parameters.toml / generated_phase2_scenario.toml and generated_phase3_parameters.toml / generated_phase3_scenario.toml.",
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode, and dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2.",
+                "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode; dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2; and active deterministic trade parameters from Trade_Inventory_FutureHooks for Phase 3.",
                 WRAP_STYLE_ID,
             ),
         ),
         (
             CellSpec("Future-ready fields", LABEL_STYLE_ID),
             CellSpec(
-                "Launch_Timing, geography-specific overrides, segment-specific overrides, dp_concentration_mg_per_ml, dp_fill_volume_ml, and Trade_Inventory_FutureHooks are preserved in normalized outputs even if not yet wired into active model logic.",
+                "Launch_Timing, geography-specific overrides, segment-specific overrides, dp_concentration_mg_per_ml, and dp_fill_volume_ml are preserved in normalized outputs even if not yet wired into active model logic.",
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "CML_Prevalent_Assumptions remains a dedicated artifact sheet. Populate approved pool, timing, and exhaustion metadata here without treating CML like AML/MDS segment mix logic.",
+                "CML_Prevalent_Assumptions remains a dedicated artifact sheet. Populate approved pool, timing, and exhaustion metadata here without treating CML like AML/MDS segment mix logic. Trade_Inventory_FutureHooks still carries a historical name, but it now also feeds the active deterministic Phase 3 trade config.",
                 WRAP_STYLE_ID,
             ),
         ),
         (
             CellSpec("Workbook to model bridge", LABEL_STYLE_ID),
             CellSpec(
-                "After import, use the generated Phase 2 scenario directly or pass the assumptions workbook into the one-command forecast workflow.",
+                "After import, use the generated Phase 2 or Phase 3 scenario directly, or pass the assumptions workbook into the one-command forecast workflow.",
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "This keeps the current architecture intact while removing the need to edit TOML by hand for the active deterministic assumptions. The workflow also consumes the generated treatment duration artifact when demand_basis = patient_starts.",
+                "This keeps the current architecture intact while removing the need to edit TOML by hand for the active deterministic assumptions. The workflow also consumes the generated treatment duration artifact when demand_basis = patient_starts and can optionally run through Phase 3.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -782,31 +782,93 @@ def _build_cml_prevalent_assumptions_sheet() -> SheetSpec:
 def _build_trade_inventory_future_hooks_sheet() -> SheetSpec:
     headers = (
         "scenario_name",
+        "trade_row_type",
         "module",
         "geography_code",
-        "trade_rule_placeholder",
-        "inventory_rule_placeholder",
+        "sublayer1_target_weeks_on_hand",
+        "sublayer2_target_weeks_on_hand",
+        "sublayer2_wastage_rate",
+        "initial_stocking_units_per_new_site",
+        "ss_units_per_new_site",
+        "sublayer1_launch_fill_months_of_demand",
+        "rems_certification_lag_weeks",
+        "january_softening_enabled",
+        "january_softening_factor",
+        "bullwhip_flag_threshold",
+        "channel_fill_start_prelaunch_weeks",
+        "sublayer2_fill_distribution_weeks",
+        "weeks_per_month",
+        "site_activation_rate",
+        "certified_sites_at_launch",
+        "certified_sites_at_peak",
+        "launch_month_index",
         "active_flag",
         "notes",
     )
     rows: list[tuple[CellSpec, ...]] = [_header_row(headers)]
-    rows.append(
-        (
-            CellSpec(style_id=CALCULATED_STYLE_ID, formula='IF(Scenario_Controls!$A$2="","",Scenario_Controls!$A$2)'),
-            CellSpec("ALL", EDITABLE_STYLE_ID),
-            CellSpec("ALL", EDITABLE_STYLE_ID),
-            CellSpec("PLACEHOLDER_FUTURE_PHASE", EDITABLE_STYLE_ID),
-            CellSpec("PLACEHOLDER_FUTURE_PHASE", EDITABLE_STYLE_ID),
-            CellSpec("no", EDITABLE_STYLE_ID),
-            CellSpec("Future-phase placeholders only. Not wired into active model logic.", EDITABLE_WRAP_STYLE_ID),
-        )
+    example_rows = (
+        ("scenario_default", "ALL", "ALL", 2.5, 1.5, 0.0, 6.0, 6.0, 1.0, 0.0, "false", 1.0, 0.25, 4.0, 8.0, 4.33, "", "", "", "", "yes", "Approved deterministic Phase 3 scenario defaults. Edit here instead of phase3_trade_layer.toml."),
+        ("geography_default", "ALL", "US", "", "", "", "", "", "", "", "", "", "", "", "", "", 5.0, 5.0, 25.0, "", "yes", "Approved/sample US site activation defaults for the deterministic Phase 3 trade layer."),
+        ("geography_default", "ALL", "EU", "", "", "", "", "", "", "", "", "", "", "", "", "", 3.0, 3.0, 18.0, "", "yes", "Approved/sample EU site activation defaults for the deterministic Phase 3 trade layer."),
+        ("launch_event", "AML", "US", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 1, "yes", "Approved/sample launch event."),
+        ("launch_event", "MDS", "US", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 1, "yes", "Approved/sample launch event."),
+        ("launch_event", "CML_Incident", "US", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 1, "yes", "Approved/sample launch event."),
+        ("launch_event", "CML_Prevalent", "US", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 1, "yes", "Approved/sample launch event."),
+        ("launch_event", "AML", "EU", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 1, "yes", "Approved/sample launch event."),
+        ("launch_event", "MDS", "EU", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 1, "yes", "Approved/sample launch event."),
+        ("launch_event", "CML_Incident", "EU", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 1, "yes", "Approved/sample launch event."),
+        ("launch_event", "CML_Prevalent", "EU", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 1, "yes", "Approved/sample launch event."),
     )
+    for row in example_rows:
+        rows.append(
+            (
+                CellSpec(style_id=CALCULATED_STYLE_ID, formula='IF(Scenario_Controls!$A$2="","",Scenario_Controls!$A$2)'),
+                CellSpec(row[0], EDITABLE_STYLE_ID),
+                CellSpec(row[1], EDITABLE_STYLE_ID),
+                CellSpec(row[2], EDITABLE_STYLE_ID),
+                CellSpec(row[3], EDITABLE_STYLE_ID) if row[3] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[4], EDITABLE_STYLE_ID) if row[4] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[5], EDITABLE_STYLE_ID) if row[5] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[6], EDITABLE_STYLE_ID) if row[6] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[7], EDITABLE_STYLE_ID) if row[7] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[8], EDITABLE_STYLE_ID) if row[8] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[9], EDITABLE_STYLE_ID) if row[9] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[10], EDITABLE_STYLE_ID) if row[10] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[11], EDITABLE_STYLE_ID) if row[11] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[12], EDITABLE_STYLE_ID) if row[12] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[13], EDITABLE_STYLE_ID) if row[13] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[14], EDITABLE_STYLE_ID) if row[14] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[15], EDITABLE_STYLE_ID) if row[15] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[16], EDITABLE_STYLE_ID) if row[16] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[17], EDITABLE_STYLE_ID) if row[17] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[18], EDITABLE_STYLE_ID) if row[18] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[19], EDITABLE_STYLE_ID) if row[19] != "" else CellSpec(style_id=EDITABLE_STYLE_ID),
+                CellSpec(row[20], EDITABLE_STYLE_ID),
+                CellSpec(row[21], EDITABLE_WRAP_STYLE_ID),
+            )
+        )
     rows.extend(
         _blank_input_rows(
             headers=len(headers),
-            count=TRADE_FUTURE_TEMPLATE_ROWS - 1,
+            count=TRADE_FUTURE_TEMPLATE_ROWS - len(example_rows),
             style_map=(
                 CALCULATED_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
+                EDITABLE_STYLE_ID,
                 EDITABLE_STYLE_ID,
                 EDITABLE_STYLE_ID,
                 EDITABLE_STYLE_ID,
@@ -819,10 +881,15 @@ def _build_trade_inventory_future_hooks_sheet() -> SheetSpec:
     return SheetSpec(
         name="Trade_Inventory_FutureHooks",
         rows=tuple(rows),
-        column_widths=(18, 20, 16, 28, 32, 12, 68),
+        column_widths=(18, 18, 18, 16, 18, 18, 18, 20, 18, 24, 20, 18, 18, 18, 22, 22, 16, 18, 20, 20, 18, 12, 72),
         freeze_cell="A2",
-        auto_filter_ref="A1:G1",
-        data_validations=(DataValidationSpec("F2:F21", "list", "Lookup_Lists!$J$2:$J$3"),),
+        auto_filter_ref="A1:W1",
+        data_validations=(
+            DataValidationSpec("B2:B21", "list", "Lookup_Lists!$O$2:$O$4"),
+            DataValidationSpec("C2:C21", "list", "Lookup_Lists!$B$2:$B$6"),
+            DataValidationSpec("L2:L21", "list", "Lookup_Lists!$F$2:$F$3"),
+            DataValidationSpec("V2:V21", "list", "Lookup_Lists!$J$2:$J$3"),
+        ),
     )
 
 
@@ -842,22 +909,23 @@ def _build_lookup_lists_sheet() -> SheetSpec:
         "forecast_frequency",
         "partial_pack_handling",
         "exhaustion_rule",
+        "trade_row_type",
     )
     rows: list[tuple[CellSpec, ...]] = [_header_row(headers)]
     lookup_rows = (
-        ("AML", "ALL", "fixed", "patient_starts", "yes", "true", "scenario_default", "patient_dose_ceiling", "separate_sku_first", "yes", "module_level", "annual", "full_pack_consumed", "track_vs_pool"),
-        ("MDS", "AML", "weight_based", "treated_census", "no", "false", "module_override", "", "", "no", "segment_level", "monthly", "", "placeholder_metadata_only"),
-        ("CML_Incident", "MDS", "", "", "", "", "", "", "", "", "", "", "", "validate_only"),
-        ("CML_Prevalent", "CML_Incident", "", "", "", "", "", "", "", "", "", "", "", ""),
-        ("", "CML_Prevalent", "", "", "", "", "", "", "", "", "", "", "", ""),
-        ("", "", "", "", "", "", "", "", "", "", "", "", "", ""),
+        ("AML", "ALL", "fixed", "patient_starts", "yes", "true", "scenario_default", "patient_dose_ceiling", "separate_sku_first", "yes", "module_level", "annual", "full_pack_consumed", "track_vs_pool", "scenario_default"),
+        ("MDS", "AML", "weight_based", "treated_census", "no", "false", "module_override", "", "", "no", "segment_level", "monthly", "", "placeholder_metadata_only", "geography_default"),
+        ("CML_Incident", "MDS", "", "", "", "", "", "", "", "", "", "", "", "validate_only", "launch_event"),
+        ("CML_Prevalent", "CML_Incident", "", "", "", "", "", "", "", "", "", "", "", "", ""),
+        ("", "CML_Prevalent", "", "", "", "", "", "", "", "", "", "", "", "", ""),
+        ("", "", "", "", "", "", "", "", "", "", "", "", "", "", ""),
     )
     for row in lookup_rows:
         rows.append(tuple(CellSpec(value) for value in row))
     return SheetSpec(
         name="Lookup_Lists",
         rows=tuple(rows),
-        column_widths=(18, 18, 18, 18, 12, 12, 18, 24, 20, 12, 18, 18, 22, 24),
+        column_widths=(18, 18, 18, 18, 12, 12, 18, 24, 20, 12, 18, 18, 22, 24, 20),
         freeze_cell="A2",
-        auto_filter_ref="A1:N1",
+        auto_filter_ref="A1:O1",
     )

@@ -43,6 +43,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `python scripts/run_phase2.py --scenario config/scenarios/base_phase2.toml`
 - `python scripts/run_phase3.py --scenario config/scenarios/base_phase3.toml`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029" --overwrite`
+- `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase3 --overwrite`
 
 ## Forecast Templates
 - `templates/CBX250_Commercial_Forecast_Template.xlsx`
@@ -64,9 +65,15 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 
 ## Workbook Import Outputs
 - `data/curated/<scenario_name>/monthlyized_output.csv` is the authoritative normalized monthly workbook export for Phase 1.
+- `monthlyized_output.csv` now carries explicit cohort-flow fields:
+  - `patient_starts` = new starts entering treatment in that month
+  - `patients_continuing` = prior cohorts still active in that month
+  - `patients_rolloff` = patients leaving treatment in that month
+  - `patients_active` = active on-treatment census for that month
 - `data/curated/<scenario_name>/commercial_forecast_module_level.csv` or `data/curated/<scenario_name>/commercial_forecast_segment_level.csv` remain the lower-level normalized contract inputs consumed by the current Phase 1 runner, depending on `forecast_grain`.
 - `data/curated/<scenario_name>/inp_cml_prevalent.csv` is the CML prevalent validation-pool file generated from workbook assumptions when usable assumptions are provided; otherwise it is written as header-only and the importer warns that no pool validation was generated.
 - The workbook tab `Monthlyized_Output` is a generated/reference placeholder in Phase 1 unless future exporter logic explicitly writes rows back into the workbook.
+- `patients_treated_monthly` is retained temporarily for backward compatibility and is equivalent to `patients_active`.
 
 ## Assumptions Workbook
 - Use `templates/CBX250_Model_Assumptions_Template.xlsx` as the business-facing assumptions entry point instead of hand-editing Phase 2 TOML files.
@@ -100,16 +107,18 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `Yield_Assumptions` scenario-default row -> `yield.plan.*` and `ds.overage_factor`
   - `Product_Parameters` scenario-default row -> `ds.qty_per_dp_unit_mg`
   - `SS_Assumptions` scenario-default row -> `ss.ratio_to_fg` and `model.co_pack_mode`
+  - `Trade_Inventory_FutureHooks` `scenario_default` row -> active deterministic Phase 3 `trade.*`
+  - `Trade_Inventory_FutureHooks` `geography_default` rows -> active deterministic Phase 3 `geography_defaults.<geography>`
+  - `Trade_Inventory_FutureHooks` `launch_event` rows -> active deterministic Phase 3 `launch_events.<module>.<geography>.launch_month_index`
 - Preserved as future-ready only in this task:
   - `Launch_Timing`
   - `CML_Prevalent_Assumptions`
-  - `Trade_Inventory_FutureHooks`
   - `Product_Parameters` module overrides for `ds_qty_per_dp_unit_mg`
   - `Yield_Assumptions` module overrides for `ds_overage_factor`
   - `dp_concentration_mg_per_ml`
   - `dp_fill_volume_ml`
 - Current Phase 3 note:
-  - `Trade_Inventory_FutureHooks` remains normalized only. The active deterministic Phase 3 trade layer still reads its approved parameters from `config/parameters/phase3_trade_layer.toml` rather than from the assumptions workbook.
+  - `Trade_Inventory_FutureHooks` is now the business-facing entry point for the active deterministic Phase 3 trade config. Broader future-phase inventory behavior remains deferred.
 
 ## One-Command Workflow
 - Run the end-to-end import plus deterministic cascade from the repo root with:
@@ -119,11 +128,15 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - the workflow will convert starts into authoritative monthly treated census before Phase 2
 - To use the business-facing assumptions workbook in the same command, run:
   - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline"`
+- To run the same workflow through deterministic Phase 3 as well, run:
+  - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase3 --overwrite`
 - If `--scenario-name` is omitted, the wrapper derives a safe default from the workbook filename.
 - Optional arguments:
   - `--phase2-scenario config/scenarios/base_phase2.toml`
+  - `--phase3-scenario config/scenarios/base_phase3.toml`
   - `--assumptions-workbook data/raw/CBX250_Model_Assumptions_Baseline.xlsx`
   - `--output-dir data/curated/real_2029`
+  - `--run-phase3`
   - `--overwrite`
 - The wrapper does not duplicate business logic. It:
   - optionally imports the assumptions workbook into normalized artifacts under `<output_dir>/assumptions`
@@ -132,17 +145,22 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - creates a generated Phase 2 scenario pointing to that CSV
   - runs the existing deterministic Phase 2 cascade
   - writes the final deterministic cascade CSV
-- Current boundary:
-  - the one-command workflow currently stops at authoritative Phase 2 output
-  - run `scripts/run_phase3.py` separately to derive the deterministic trade layer from `phase2_deterministic_cascade.csv`
+  - optionally creates a generated Phase 3 scenario pointing to the workflow Phase 2 output
+  - optionally runs the existing deterministic Phase 3 trade layer
+  - optionally writes the final deterministic trade-layer CSV
 - Precedence:
   - if `--assumptions-workbook` is provided, its generated Phase 2 scenario/config becomes the active Phase 2 parameter source
+  - if `--assumptions-workbook` is provided and `--run-phase3` is enabled, its generated Phase 3 scenario/config becomes the active Phase 3 parameter source
   - if both `--assumptions-workbook` and `--phase2-scenario` are provided, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase2-scenario` was ignored
+  - if both `--assumptions-workbook` and `--phase3-scenario` are provided with `--run-phase3`, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase3-scenario` was ignored
+  - if `--run-phase3` is enabled without `--assumptions-workbook`, the workflow uses `--phase3-scenario` if supplied, otherwise it falls back to `config/scenarios/base_phase3.toml`
 - Expected outputs from the wrapper are written to the selected output directory:
   - `monthlyized_output.csv`
   - `phase2_deterministic_cascade.csv`
   - `generated_phase2_scenario.toml`
-  - `assumptions/` normalized artifacts and generated Phase 2 config files when `--assumptions-workbook` is provided
+  - `phase3_trade_layer.csv` when `--run-phase3` is enabled
+  - `generated_phase3_scenario.toml` when `--run-phase3` is enabled
+  - `assumptions/` normalized artifacts and generated Phase 2 / Phase 3 config files when `--assumptions-workbook` is provided
   - the standard normalized Phase 1 CSV package and `workbook_import_summary.json`
 - The terminal summary reports:
   - `scenario_name`
@@ -153,6 +171,11 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `total_patients_treated`
   - `total_fg_units_required`
   - `total_ss_units_required`
+  - `total_patient_fg_demand_units` when Phase 3 runs
+  - `total_sublayer2_pull_units` when Phase 3 runs
+  - `total_ex_factory_fg_demand_units` when Phase 3 runs
+  - `bullwhip_flag_row_count` when Phase 3 runs
+  - authoritative output file paths for each phase that ran
   - `total_dp_units_required`
   - `total_ds_required` (backward-compatible mg total)
   - `total_ds_required_mg`
@@ -226,6 +249,9 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - The current Phase 3 config lives in:
   - `config/scenarios/base_phase3.toml`
   - `config/parameters/phase3_trade_layer.toml`
+- For normal business runs, the active deterministic Phase 3 parameters can also come from the assumptions workbook `Trade_Inventory_FutureHooks` sheet via:
+  - `data/outputs/<scenario_name>/assumptions/generated_phase3_parameters.toml`
+  - `data/outputs/<scenario_name>/assumptions/generated_phase3_scenario.toml`
 - Current base-case config values that are locked vs placeholder:
   - locked: `initial_stocking_units_per_new_site = 6`, `ss_units_per_new_site = 6`, `bullwhip_flag_threshold = 0.25`
   - clearly labeled placeholder sample values pending business approval: target weeks on hand midpoints, site activation rates, certified site counts, launch-fill months of demand, and January-softening default settings
@@ -234,6 +260,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 ## Phase 3 Outputs
 - `config/scenarios/base_phase3.toml` is the sample Phase 3 scenario.
 - `config/parameters/phase3_trade_layer.toml` contains the deterministic trade parameters.
+- The workflow-generated or assumptions-generated Phase 3 scenario is the normal business-facing path when you want workbook-driven trade assumptions rather than manual TOML edits.
 - The authoritative Phase 3 output table is the trade-layer CSV written by the scenario config under `[outputs].deterministic_trade_layer`.
 - The sample output path is `data/outputs/base_phase3_trade_layer.csv` when you run `scripts/run_phase3.py`.
 - Output grain remains `scenario x geography x module x segment x month`.
@@ -273,6 +300,12 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - annual patient starts
 - `patient_starts` mode uses treatment duration assumptions to convert starts into authoritative monthly treated census.
 - `treated_census` mode preserves direct treated-patient inputs and must not apply treatment duration again.
+- In `patient_starts` mode, the authoritative monthly output is:
+  - `patient_starts`
+  - `patients_continuing`
+  - `patients_rolloff`
+  - `patients_active`
+- `patients_treated_monthly` remains the backward-compatible alias of `patients_active` for current downstream consumers.
 - Default locations where the repo now seeds `patient_starts`:
   - `config/parameters/phase1_demand_parameters.toml` with `model.demand_basis = "patient_starts"`
   - `src/cbx250_model/inputs/config_schema.py` fallback default when `model.demand_basis` is omitted

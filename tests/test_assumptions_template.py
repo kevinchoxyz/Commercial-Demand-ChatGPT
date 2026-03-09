@@ -82,6 +82,11 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
         "patient_starts is the preferred default operating mode and represents the approved base-case commercial input path.",
         "treated_census remains supported for backward compatibility and special cases only. Do not apply duration logic on top of already treated-census inputs.",
     ]
+    assert _row_values(output_path, sheet_map["Instructions"], 7) == [
+        "Current engine wiring",
+        "The importer generates machine-readable CSV artifacts plus generated_phase2_parameters.toml / generated_phase2_scenario.toml and generated_phase3_parameters.toml / generated_phase3_scenario.toml.",
+        "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode; dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2; and active deterministic trade parameters from Trade_Inventory_FutureHooks for Phase 3.",
+    ]
     assert _row_values(output_path, sheet_map["Scenario_Controls"], 2) == [
         "BASE_2029",
         "Approved base-case assumptions bridge",
@@ -201,6 +206,55 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
         "PLACEHOLDER",
         "no",
         "PLACEHOLDER populate approved US prevalent pool inputs before activating.",
+    ]
+    assert _row_values(output_path, sheet_map["Trade_Inventory_FutureHooks"], 1) == [
+        "scenario_name",
+        "trade_row_type",
+        "module",
+        "geography_code",
+        "sublayer1_target_weeks_on_hand",
+        "sublayer2_target_weeks_on_hand",
+        "sublayer2_wastage_rate",
+        "initial_stocking_units_per_new_site",
+        "ss_units_per_new_site",
+        "sublayer1_launch_fill_months_of_demand",
+        "rems_certification_lag_weeks",
+        "january_softening_enabled",
+        "january_softening_factor",
+        "bullwhip_flag_threshold",
+        "channel_fill_start_prelaunch_weeks",
+        "sublayer2_fill_distribution_weeks",
+        "weeks_per_month",
+        "site_activation_rate",
+        "certified_sites_at_launch",
+        "certified_sites_at_peak",
+        "launch_month_index",
+        "active_flag",
+        "notes",
+    ]
+    assert _row_values(output_path, sheet_map["Trade_Inventory_FutureHooks"], 2)[1:] == [
+        "scenario_default",
+        "ALL",
+        "ALL",
+        "2.5",
+        "1.5",
+        "0",
+        "6",
+        "6",
+        "1",
+        "0",
+        "false",
+        "1",
+        "0.25",
+        "4",
+        "8",
+        "4.33",
+        "",
+        "",
+        "",
+        "",
+        "yes",
+        "Approved deterministic Phase 3 scenario defaults. Edit here instead of phase3_trade_layer.toml.",
     ]
     assert _cell_formula(output_path, sheet_map["Dosing_Assumptions"], "A2") == (
         'IF(Scenario_Controls!$A$2="","",Scenario_Controls!$A$2)'

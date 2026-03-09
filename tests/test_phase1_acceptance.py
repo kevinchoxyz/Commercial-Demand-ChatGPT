@@ -110,6 +110,10 @@ def test_phase1_acceptance_reconciles_authoritative_monthlyized_output_across_fo
 
     assert sum_csv_numeric(active_contract_rows, "patients_treated") == pytest.approx(expected_source_total)
     assert sum_csv_numeric(monthlyized_rows, "patients_treated_monthly") == pytest.approx(expected_source_total)
+    assert all(
+        float(row["patients_treated_monthly"]) == pytest.approx(float(row["patients_active"]))
+        for row in monthlyized_rows
+    )
     assert monthlyized_map[expected_key] == pytest.approx(expected_value)
     assert {"CML_Incident", "CML_Prevalent"} <= {row["module"] for row in monthlyized_rows}
 
@@ -329,8 +333,13 @@ def test_phase1_acceptance_patient_starts_mode_builds_authoritative_treated_cens
         if row["module"] == "AML" and row["segment_code"] == "1L_fit" and row["month_index"] == "13"
     )
     assert month_13["patients_treated_monthly"] == "10"
-    assert month_13["continuing_patients"] == "10"
-    assert month_13["rolloff_patients"] == "10"
+    assert month_13["patients_active"] == "10"
+    assert month_13["patient_starts"] == "0"
+    assert month_13["patients_continuing"] == "10"
+    assert month_13["patients_rolloff"] == "10"
+    assert month_13["patients_treated_monthly"] == month_13["patients_active"]
+    assert month_13["continuing_patients"] == month_13["patients_continuing"]
+    assert month_13["rolloff_patients"] == month_13["patients_rolloff"]
     assert month_13["treatment_duration_months_used"] == "12"
 
     scenario_path = write_import_backed_phase1_scenario(
