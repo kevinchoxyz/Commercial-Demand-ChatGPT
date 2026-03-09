@@ -104,21 +104,29 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
 ## One-Command Workflow
 - Run the end-to-end import plus deterministic cascade from the repo root with:
   - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029"`
+- To use the business-facing assumptions workbook in the same command, run:
+  - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline"`
 - If `--scenario-name` is omitted, the wrapper derives a safe default from the workbook filename.
 - Optional arguments:
   - `--phase2-scenario config/scenarios/base_phase2.toml`
+  - `--assumptions-workbook data/raw/CBX250_Model_Assumptions_Baseline.xlsx`
   - `--output-dir data/curated/real_2029`
   - `--overwrite`
 - The wrapper does not duplicate business logic. It:
+  - optionally imports the assumptions workbook into normalized artifacts under `<output_dir>/assumptions`
   - imports the workbook with the existing importer
   - verifies that authoritative `monthlyized_output.csv` was generated
   - creates a generated Phase 2 scenario pointing to that CSV
   - runs the existing deterministic Phase 2 cascade
   - writes the final deterministic cascade CSV
+- Precedence:
+  - if `--assumptions-workbook` is provided, its generated Phase 2 scenario/config becomes the active Phase 2 parameter source
+  - if both `--assumptions-workbook` and `--phase2-scenario` are provided, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase2-scenario` was ignored
 - Expected outputs from the wrapper are written to the selected output directory:
   - `monthlyized_output.csv`
   - `phase2_deterministic_cascade.csv`
   - `generated_phase2_scenario.toml`
+  - `assumptions/` normalized artifacts and generated Phase 2 config files when `--assumptions-workbook` is provided
   - the standard normalized Phase 1 CSV package and `workbook_import_summary.json`
 - The terminal summary reports:
   - `scenario_name`
@@ -135,6 +143,9 @@ This repository contains the accepted Phase 1 deterministic demand foundation pl
   - `total_ds_required_g`
   - `total_ds_required_kg`
   - `validation_issue_count`
+  - `phase2_parameter_source`
+  - `phase2_parameter_config_used`
+  - `assumptions_artifacts`
   - authoritative Phase 1 and Phase 2 output paths
 
 ## Phase 2 Deterministic Cascade

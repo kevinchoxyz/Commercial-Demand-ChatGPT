@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
         help="Path to the completed Commercial forecast workbook.",
     )
     parser.add_argument(
+        "--assumptions-workbook",
+        type=Path,
+        default=None,
+        help="Optional business-facing assumptions workbook. If provided, its generated Phase 2 config becomes the active parameter source.",
+    )
+    parser.add_argument(
         "--scenario-name",
         type=str,
         default=None,
@@ -35,7 +41,7 @@ def parse_args() -> argparse.Namespace:
         "--phase2-scenario",
         type=Path,
         default=None,
-        help="Optional Phase 2 scenario template to use as the parameter_config source. Defaults to config/scenarios/base_phase2.toml.",
+        help="Optional Phase 2 scenario template to use as the parameter_config source. Defaults to config/scenarios/base_phase2.toml when --assumptions-workbook is not provided.",
     )
     parser.add_argument(
         "--output-dir",
@@ -56,6 +62,7 @@ def main() -> int:
     try:
         result = run_forecast_workflow(
             workbook_path=args.workbook,
+            assumptions_workbook=args.assumptions_workbook,
             scenario_name=args.scenario_name,
             phase2_scenario=args.phase2_scenario,
             output_dir=args.output_dir,

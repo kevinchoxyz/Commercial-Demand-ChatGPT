@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from cbx250_model.inputs.assumptions_template import build_model_assumptions_template
 from cbx250_model.inputs.excel_import import WorkbookImportResult, WorkbookSubmissionContext
 from cbx250_model.inputs.excel_template import build_commercial_forecast_template
 from cbx250_model.phase2.config_schema import load_phase2_config
@@ -38,6 +39,7 @@ def test_forecast_workflow_happy_path_runs_import_and_phase2(tmp_path: Path) -> 
     assert result.summary["forecast_frequency"] == "monthly"
     assert result.summary["output_row_count"] > 0
     assert result.summary["validation_issue_count"] == 0
+    assert result.summary["assumptions_workbook_used"] is False
     assert result.summary["authoritative_output_files"] == {
         "phase1_monthlyized_output": str(result.phase1_monthlyized_output_path),
         "phase2_deterministic_cascade": str(result.phase2_output_path),
@@ -47,6 +49,17 @@ def test_forecast_workflow_happy_path_runs_import_and_phase2(tmp_path: Path) -> 
 def test_forecast_workflow_fails_for_missing_workbook(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="Workbook not found"):
         run_forecast_workflow(workbook_path=tmp_path / "missing_workbook.xlsx")
+
+
+def test_forecast_workflow_fails_for_missing_assumptions_workbook(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "workflow_source.xlsx"
+    build_commercial_forecast_template(workbook_path)
+
+    with pytest.raises(FileNotFoundError, match="Assumptions workbook not found"):
+        run_forecast_workflow(
+            workbook_path=workbook_path,
+            assumptions_workbook=tmp_path / "missing_assumptions.xlsx",
+        )
 
 
 def test_forecast_workflow_fails_if_import_does_not_create_monthlyized_output(
@@ -113,6 +126,91 @@ def test_forecast_workflow_generated_phase2_scenario_uses_authoritative_monthlyi
 
     assert phase2_config.input_paths.phase1_monthlyized_output == result.phase1_monthlyized_output_path
     assert result.generated_phase2_scenario_path.exists()
+
+
+def test_forecast_workflow_happy_path_uses_assumptions_workbook_as_phase2_source(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "workflow_source.xlsx"
+    assumptions_workbook_path = tmp_path / "assumptions.xlsx"
+    build_commercial_forecast_template(workbook_path)
+    build_model_assumptions_template(assumptions_workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain="module_level",
+        forecast_frequency="monthly",
+    )
+
+    result = run_forecast_workflow(
+        workbook_path=workbook_path,
+        assumptions_workbook=assumptions_workbook_path,
+        scenario_name="ASSUMPTIONS_REAL_2029",
+        output_dir=tmp_path / "workflow_output",
+    )
+
+    assert result.assumptions_result is not None
+    assert result.assumptions_output_dir == (tmp_path / "workflow_output" / "assumptions").resolve()
+    assert result.summary["assumptions_workbook_used"] is True
+    assert result.summary["phase2_parameter_source"] == "assumptions_workbook"
+    assert result.summary["assumptions_artifacts"]["generated_phase2_parameters"].endswith(
+        "generated_phase2_parameters.toml"
+    )
+    assert result.phase2_output_path.exists()
+
+
+def test_forecast_workflow_generated_phase2_scenario_uses_assumptions_generated_parameter_config(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "workflow_source.xlsx"
+    assumptions_workbook_path = tmp_path / "assumptions.xlsx"
+    build_commercial_forecast_template(workbook_path)
+    build_model_assumptions_template(assumptions_workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain="segment_level",
+        forecast_frequency="monthly",
+    )
+
+    result = run_forecast_workflow(
+        workbook_path=workbook_path,
+        assumptions_workbook=assumptions_workbook_path,
+        scenario_name="ASSUMPTIONS_SEGMENT_2029",
+        output_dir=tmp_path / "workflow_output",
+    )
+    phase2_config = load_phase2_config(result.generated_phase2_scenario_path)
+
+    assert result.assumptions_result is not None
+    assert phase2_config.input_paths.phase1_monthlyized_output == result.phase1_monthlyized_output_path
+    assert phase2_config.parameter_config_path == result.assumptions_result.file_paths["generated_phase2_parameters"]
+    assert result.summary["phase2_parameter_config_used"] == str(
+        result.assumptions_result.file_paths["generated_phase2_parameters"]
+    )
+
+
+def test_forecast_workflow_assumptions_workbook_wins_over_phase2_scenario_with_warning(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "workflow_source.xlsx"
+    assumptions_workbook_path = tmp_path / "assumptions.xlsx"
+    build_commercial_forecast_template(workbook_path)
+    build_model_assumptions_template(assumptions_workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain="module_level",
+        forecast_frequency="monthly",
+    )
+
+    result = run_forecast_workflow(
+        workbook_path=workbook_path,
+        assumptions_workbook=assumptions_workbook_path,
+        phase2_scenario=Path("config/scenarios/base_phase2.toml"),
+        scenario_name="ASSUMPTIONS_WIN_2029",
+        output_dir=tmp_path / "workflow_output",
+    )
+
+    assert result.assumptions_result is not None
+    assert result.phase2_template_path == result.assumptions_result.file_paths["generated_phase2_scenario"]
+    assert any("phase2_scenario" in warning and "ignored" in warning for warning in result.summary["workflow_warnings"])
 
 
 def test_forecast_workflow_summary_reflects_no_sharing_fg_and_ss_totals(tmp_path: Path) -> None:

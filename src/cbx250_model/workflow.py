@@ -9,6 +9,7 @@ import os
 import re
 import tomllib
 
+from .inputs.assumptions_import import AssumptionsImportResult, import_model_assumptions_workbook
 from .inputs.excel_import import WorkbookImportResult, import_commercial_forecast_workbook
 from .outputs.summary import format_validation_report
 from .phase2.runner import Phase2RunResult, run_phase2_scenario
@@ -21,10 +22,13 @@ class ForecastWorkflowResult:
     workbook_path: Path
     output_dir: Path
     scenario_name: str
+    assumptions_workbook_path: Path | None
+    assumptions_output_dir: Path | None
     phase2_template_path: Path
     generated_phase2_scenario_path: Path
     phase1_monthlyized_output_path: Path
     phase2_output_path: Path
+    assumptions_result: AssumptionsImportResult | None
     import_result: WorkbookImportResult
     phase2_result: Phase2RunResult
     summary: dict[str, object]
@@ -33,6 +37,7 @@ class ForecastWorkflowResult:
 def run_forecast_workflow(
     *,
     workbook_path: str | Path,
+    assumptions_workbook: str | Path | None = None,
     scenario_name: str | None = None,
     phase2_scenario: str | Path | None = None,
     output_dir: str | Path | None = None,
@@ -42,6 +47,13 @@ def run_forecast_workflow(
     resolved_workbook_path = Path(workbook_path).resolve()
     if not resolved_workbook_path.exists() or not resolved_workbook_path.is_file():
         raise FileNotFoundError(f"Workbook not found: {resolved_workbook_path}")
+    resolved_assumptions_workbook_path = (
+        Path(assumptions_workbook).resolve() if assumptions_workbook is not None else None
+    )
+    if resolved_assumptions_workbook_path is not None and (
+        not resolved_assumptions_workbook_path.exists() or not resolved_assumptions_workbook_path.is_file()
+    ):
+        raise FileNotFoundError(f"Assumptions workbook not found: {resolved_assumptions_workbook_path}")
 
     effective_scenario_name = scenario_name.strip() if scenario_name and scenario_name.strip() else _derive_safe_scenario_name(
         resolved_workbook_path
@@ -52,6 +64,21 @@ def run_forecast_workflow(
         output_dir=output_dir,
     )
     _validate_output_dir_state(resolved_output_dir, overwrite=overwrite)
+
+    workflow_warnings: list[str] = []
+    assumptions_result: AssumptionsImportResult | None = None
+    assumptions_output_dir: Path | None = None
+    if resolved_assumptions_workbook_path is not None:
+        if phase2_scenario is not None:
+            workflow_warnings.append(
+                f"assumptions_workbook was provided, so phase2_scenario {Path(phase2_scenario).resolve()} was ignored."
+            )
+        assumptions_output_dir = (resolved_output_dir / "assumptions").resolve()
+        assumptions_result = _run_assumptions_import_step(
+            workbook_path=resolved_assumptions_workbook_path,
+            output_dir=assumptions_output_dir,
+            scenario_name=effective_scenario_name,
+        )
 
     import_result = _run_import_step(
         workbook_path=resolved_workbook_path,
@@ -64,9 +91,11 @@ def run_forecast_workflow(
             "Workbook import did not produce the authoritative Phase 1 output monthlyized_output.csv."
         )
 
-    phase2_template_path = Path(phase2_scenario).resolve() if phase2_scenario is not None else (
-        repo_root / "config" / "scenarios" / "base_phase2.toml"
-    ).resolve()
+    phase2_template_path = _resolve_phase2_template_path(
+        repo_root=repo_root,
+        assumptions_result=assumptions_result,
+        phase2_scenario=phase2_scenario,
+    )
     if not phase2_template_path.exists() or not phase2_template_path.is_file():
         raise FileNotFoundError(f"Phase 2 scenario template not found: {phase2_template_path}")
 
@@ -86,19 +115,25 @@ def run_forecast_workflow(
         phase2_result.outputs,
     )
     summary = build_workflow_summary(
+        assumptions_result=assumptions_result,
         import_result=import_result,
         phase2_result=phase2_result,
         phase2_output_path=phase2_output_path,
+        phase2_template_path=phase2_template_path,
         generated_phase2_scenario_path=generated_phase2_scenario_path,
+        workflow_warnings=tuple(workflow_warnings),
     )
     return ForecastWorkflowResult(
         workbook_path=resolved_workbook_path,
         output_dir=resolved_output_dir,
         scenario_name=import_result.context.scenario_name,
+        assumptions_workbook_path=resolved_assumptions_workbook_path,
+        assumptions_output_dir=assumptions_output_dir,
         phase2_template_path=phase2_template_path,
         generated_phase2_scenario_path=generated_phase2_scenario_path,
         phase1_monthlyized_output_path=monthlyized_output_path,
         phase2_output_path=phase2_output_path,
+        assumptions_result=assumptions_result,
         import_result=import_result,
         phase2_result=phase2_result,
         summary=summary,
@@ -107,10 +142,13 @@ def run_forecast_workflow(
 
 def build_workflow_summary(
     *,
+    assumptions_result: AssumptionsImportResult | None,
     import_result: WorkbookImportResult,
     phase2_result: Phase2RunResult,
     phase2_output_path: Path,
+    phase2_template_path: Path,
     generated_phase2_scenario_path: Path,
+    workflow_warnings: tuple[str, ...],
 ) -> dict[str, object]:
     phase2_summary = build_phase2_run_summary(phase2_result, str(phase2_output_path))
     geography_count = (
@@ -122,6 +160,13 @@ def build_workflow_summary(
         "phase1_monthlyized_output": str(import_result.file_paths["monthlyized_output"]),
         "phase2_deterministic_cascade": str(phase2_output_path),
     }
+    assumptions_artifacts = None
+    if assumptions_result is not None:
+        assumptions_artifacts = {
+            "assumptions_output_dir": str(assumptions_result.output_dir),
+            "generated_phase2_scenario": str(assumptions_result.file_paths["generated_phase2_scenario"]),
+            "generated_phase2_parameters": str(assumptions_result.file_paths["generated_phase2_parameters"]),
+        }
     return {
         "scenario_name": import_result.context.scenario_name,
         "forecast_grain": import_result.context.forecast_grain,
@@ -129,10 +174,21 @@ def build_workflow_summary(
         "geography_count": geography_count,
         "phase1_output_row_count": import_result.row_counts.get("monthlyized_output", 0),
         **phase2_summary,
+        "phase2_parameter_source": (
+            "assumptions_workbook" if assumptions_result is not None else "phase2_scenario_template"
+        ),
+        "phase2_parameter_template_used": str(phase2_template_path),
+        "phase2_parameter_config_used": str(phase2_result.config.parameter_config_path),
+        "assumptions_workbook_used": assumptions_result is not None,
+        "assumptions_artifacts": assumptions_artifacts,
         "generated_phase2_scenario": str(generated_phase2_scenario_path),
         "authoritative_output_files": authoritative_output_files,
         "import_warning_count": len(import_result.warnings),
         "import_warnings": list(import_result.warnings),
+        "assumptions_warning_count": len(assumptions_result.warnings) if assumptions_result is not None else 0,
+        "assumptions_warnings": list(assumptions_result.warnings) if assumptions_result is not None else [],
+        "workflow_warning_count": len(workflow_warnings),
+        "workflow_warnings": list(workflow_warnings),
     }
 
 
@@ -150,6 +206,22 @@ def _run_import_step(
         )
     except ValueError as exc:
         raise ValueError(f"Workbook import failed: {exc}") from exc
+
+
+def _run_assumptions_import_step(
+    *,
+    workbook_path: Path,
+    output_dir: Path,
+    scenario_name: str,
+) -> AssumptionsImportResult:
+    try:
+        return import_model_assumptions_workbook(
+            workbook_path=workbook_path,
+            output_dir=output_dir,
+            scenario_name_override=scenario_name,
+        )
+    except ValueError as exc:
+        raise ValueError(f"Assumptions import failed: {exc}") from exc
 
 
 def _resolve_output_dir(
@@ -173,6 +245,19 @@ def _validate_output_dir_state(output_dir: Path, *, overwrite: bool) -> None:
             )
         return
     output_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_phase2_template_path(
+    *,
+    repo_root: Path,
+    assumptions_result: AssumptionsImportResult | None,
+    phase2_scenario: str | Path | None,
+) -> Path:
+    if assumptions_result is not None:
+        return assumptions_result.file_paths["generated_phase2_scenario"].resolve()
+    if phase2_scenario is not None:
+        return Path(phase2_scenario).resolve()
+    return (repo_root / "config" / "scenarios" / "base_phase2.toml").resolve()
 
 
 def _write_generated_phase2_scenario(
@@ -251,4 +336,3 @@ def _slugify_scenario_name(scenario_name: str) -> str:
 
 def format_workflow_summary(summary: dict[str, object]) -> str:
     return json.dumps(summary, indent=2)
-
