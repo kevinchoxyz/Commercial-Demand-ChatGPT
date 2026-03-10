@@ -144,6 +144,24 @@ Current repo implementation boundary:
   - Sub-Layer 2 pull
   - ex-factory FG demand
 
+### 4.6 Phase 4 Output Contract
+- deterministic production scheduling consumes accepted Phase 3 `ex_factory_fg_demand_units`
+- schedule detail output is machine-readable at stage/batch granularity with:
+  - stage
+  - module
+  - geography
+  - planned start and release months
+  - batch quantity
+  - deterministic capacity / supply-gap / bullwhip / SS-sync flags
+- monthly summary output provides at least:
+  - FG release units
+  - DP release units
+  - DS release quantity
+  - SS release units
+  - cumulative FG released
+  - cumulative SS released
+  - unmet demand units
+
 ## 5. Validation Rules
 
 ### Hard Checks
@@ -165,12 +183,12 @@ Current repo implementation boundary:
 - demand-module skeletons for AML, MDS, CML Incident, CML Prevalent
 - deterministic dose and unit cascade consuming normalized monthly patient outputs
 - deterministic trade layer consuming accepted Phase 2 FG outputs
+- deterministic production scheduling consuming accepted Phase 3 ex-factory FG outputs
 - validation framework
 - unit tests
 - example configs and sample input files
 
 ## 7. Explicitly Out Of Scope For The First Pass
-- production scheduling
 - inventory balance logic
 - financials
 - Monte Carlo / stochastic simulation

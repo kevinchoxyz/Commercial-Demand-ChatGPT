@@ -1,0 +1,67 @@
+# APPROVED PHASE 4 DETERMINISTIC PRODUCTION SCHEDULING CONFIG
+# Inventory balances, financials, and stochastic scheduling remain deferred.
+# excess_build_threshold_ratio and projected_cml_prevalent_bolus_exhaustion_month_index
+# remain clearly labeled PLACEHOLDER controls until business-approved values are loaded.
+
+[model]
+phase = 4
+build_scope = "deterministic_production_schedule"
+upstream_demand_contract = "phase3_trade_layer.csv"
+
+[modules]
+enabled = ["AML", "MDS", "CML_Incident", "CML_Prevalent"]
+disabled = ["inventory", "financials", "monte_carlo"]
+
+[conversion]
+dp_to_fg_yield = 0.98
+ds_to_dp_yield = 0.90
+ds_qty_per_dp_unit_mg = 1.0
+ds_overage_factor = 0.05
+ss_ratio_to_fg = 1.0
+weeks_per_month = 4.33
+
+[review]
+bullwhip_amplification_threshold = 1.25
+bullwhip_review_window_months = 2
+excess_build_threshold_ratio = 0.25
+
+[stepdown]
+cml_prevalent_forward_window_months = 6
+projected_cml_prevalent_bolus_exhaustion_month_index = 0
+
+[fg]
+lead_time_from_dp_release_weeks = 4.0
+packaging_cycle_weeks = 2.0
+release_qa_weeks = 2.0
+total_order_to_release_weeks = 8.0
+packaging_campaign_size_units = 50000.0
+
+[dp]
+lead_time_from_ds_release_weeks = 4.0
+manufacturing_cycle_weeks = 2.0
+release_testing_weeks = 12.0
+total_order_to_release_weeks = 18.0
+min_batch_size_units = 100000.0
+max_batch_size_units = 500000.0
+min_campaign_batches = 3
+annual_capacity_batches = 10
+
+[ds]
+lead_time_to_batch_start_planning_horizon_weeks = 24.0
+manufacturing_cycle_weeks = 8.0
+release_testing_weeks = 12.0
+total_order_to_release_weeks = 44.0
+min_batch_size_kg = 2.0
+max_batch_size_kg = 4.0
+min_campaign_batches = 3
+annual_capacity_batches = 5
+
+[ss]
+order_to_release_lead_time_weeks = 24.0
+batch_size_units = 100000.0
+min_campaign_batches = 3
+annual_capacity_batches = 10
+release_must_coincide_with_or_precede_fg = true
+
+[validation]
+enforce_unique_output_keys = true

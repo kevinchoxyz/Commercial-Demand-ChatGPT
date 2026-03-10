@@ -1,0 +1,12 @@
+# APPROVED BASE-CASE PHASE 4 SCENARIO
+# File paths are resolved relative to this file.
+
+scenario_name = "BASE_2029"
+parameter_config = "../parameters/phase4_production_schedule.toml"
+
+[inputs]
+phase3_trade_layer = "../../data/outputs/base_phase3_trade_layer.csv"
+
+[outputs]
+schedule_detail = "../../data/outputs/base_phase4_schedule_detail.csv"
+monthly_summary = "../../data/outputs/base_phase4_monthly_summary.csv"

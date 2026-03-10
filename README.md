@@ -1,6 +1,6 @@
 # CBX-250 Commercial Planning Model
 
-This repository contains the accepted Phase 1 deterministic demand foundation, the deterministic Phase 2 dose and unit cascade, and the deterministic Phase 3 trade / channel-fill layer for the CBX-250 commercial planning model. Later-phase capabilities remain explicit placeholders.
+This repository contains the accepted Phase 1 deterministic demand foundation, the deterministic Phase 2 dose and unit cascade, the deterministic Phase 3 trade / channel-fill layer, and the deterministic Phase 4 production scheduling layer for the CBX-250 commercial planning model. Later-phase capabilities remain explicit placeholders.
 
 ## Read These Files First
 - `docs/model_contract/model_contract_phase0.md`
@@ -13,11 +13,13 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - Accepted Phase 1 deterministic demand foundation
 - Deterministic Phase 2 dose and unit cascade
 - Deterministic Phase 3 trade / channel-fill layer
+- Deterministic Phase 4 production scheduling
 - Monthly 240-month horizon
 - Config-driven setup
 - Demand logic for AML, MDS, CML Incident, and CML Prevalent
 - Phase 2 cascade outputs for doses, FG, SS, DP, and DS
 - Phase 3 trade outputs for patient FG demand, Sub-Layer 2 pull, and ex-factory FG demand
+- Phase 4 schedule outputs for DS, DP, FG, and SS starts/releases
 - Configurable commercial forecast grain:
   - `module_level`
   - `segment_level`
@@ -31,6 +33,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `python -m pytest tests/test_phase1_acceptance.py`
 - `python -m pytest tests/test_phase2_runner.py tests/test_phase2_acceptance.py`
 - `python -m pytest tests/test_phase3_runner.py tests/test_phase3_acceptance.py`
+- `python -m pytest tests/test_phase4_runner.py tests/test_phase4_acceptance.py`
 - `python -m pytest tests/test_forecast_workflow.py`
 - `python -m pytest tests/test_assumptions_template.py tests/test_assumptions_import.py`
 - `python scripts/run_phase1.py --scenario config/scenarios/base_phase1.toml`
@@ -42,6 +45,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `python scripts/assumptions_import.py --workbook templates/CBX250_Model_Assumptions_Template.xlsx`
 - `python scripts/run_phase2.py --scenario config/scenarios/base_phase2.toml`
 - `python scripts/run_phase3.py --scenario config/scenarios/base_phase3.toml`
+- `python scripts/run_phase4.py --scenario config/scenarios/base_phase4.toml`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029" --overwrite`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase3 --overwrite`
 
@@ -284,10 +288,74 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `sublayer2_inventory_on_hand_end_units`
   - `sublayer1_inventory_on_hand_end_units`
 
+## Phase 4 Deterministic Production Scheduling
+- Phase 4 consumes the accepted Phase 3 trade-layer output only: `phase3_trade_layer.csv`.
+- The authoritative upstream signal is Time Series 3: `ex_factory_fg_demand_units`.
+- The scheduler remains upstream-contract driven and agnostic to whether upstream treated demand originated from `treated_census` or `patient_starts`.
+- Current deterministic scheduling logic:
+  - decomposes Phase 3 into underlying patient consumption and channel-build inflation
+  - sizes new FG production to underlying patient demand rather than temporary channel-fill inflation
+  - works backward from FG release month into FG start, DP release/start, DS release/start, and SS start
+  - enforces deterministic stage batch-size, min-campaign, and annual-capacity rules
+  - flags lead-time-sensitive months, excess-build months, bullwhip-review months, and SS/FG sync exceptions
+  - does not yet calculate rolling inventory balances, financials, or stochastic timing/yield behavior
+- Current Phase 4 config lives in:
+  - `config/scenarios/base_phase4.toml`
+  - `config/parameters/phase4_production_schedule.toml`
+- Current approved deterministic base-case scheduling parameters:
+  - DS: `24` week planning horizon hook, `8` week manufacturing, `12` week release testing, `2-4 kg` batch size, min `3` batch campaign, max `5` batches/year
+  - DP: `4` week DS-release handoff, `2` week manufacturing, `12` week release testing, `100000-500000` unit batch size, min `3` batch campaign, max `10` batches/year
+  - FG: `4` week DP-release handoff, `2` week packaging cycle, `2` week QA/release, `50000` units per packaging campaign
+  - SS: `24` week order-to-release lead time, `100000` units per batch, min `3` batch campaign, max `10` batches/year, release must coincide with or precede FG
+- Current clearly labeled placeholders pending fuller business approval:
+  - `review.excess_build_threshold_ratio`
+  - `stepdown.projected_cml_prevalent_bolus_exhaustion_month_index`
+
+## Phase 4 Outputs
+- `config/scenarios/base_phase4.toml` is the sample Phase 4 scenario.
+- `config/parameters/phase4_production_schedule.toml` contains the deterministic scheduling parameters and conversion assumptions used to translate Phase 3 FG demand back into DS/DP/FG/SS schedules.
+- The authoritative Phase 4 outputs are:
+  - `[outputs].schedule_detail`
+  - `[outputs].monthly_summary`
+- Sample output paths:
+  - `data/outputs/base_phase4_schedule_detail.csv`
+  - `data/outputs/base_phase4_monthly_summary.csv`
+- The schedule-detail CSV includes at least:
+  - `scenario_name`
+  - `stage`
+  - `module`
+  - `geography_code`
+  - `batch_number`
+  - `demand_month_index`
+  - `month_index`
+  - `planned_start_month`
+  - `planned_release_month`
+  - `batch_quantity`
+  - `quantity_unit`
+  - `cumulative_released_quantity`
+  - `capacity_used`
+  - `capacity_limit`
+  - `capacity_flag`
+  - `supply_gap_flag`
+  - `excess_build_flag`
+  - `bullwhip_review_flag`
+  - `ss_fg_sync_flag`
+- The monthly summary CSV includes at least:
+  - `fg_release_units`
+  - `dp_release_units`
+  - `ds_release_quantity_mg`
+  - `ds_release_quantity_g`
+  - `ds_release_quantity_kg`
+  - `ss_release_units`
+  - `cumulative_fg_released`
+  - `cumulative_ss_released`
+  - `unmet_demand_units`
+
 ## Acceptance Tests
 - Run the business acceptance layer with `python -m pytest tests/test_phase1_acceptance.py`.
 - Run the Phase 2 business acceptance layer with `python -m pytest tests/test_phase2_runner.py tests/test_phase2_acceptance.py`.
 - Run the Phase 3 business acceptance layer with `python -m pytest tests/test_phase3_runner.py tests/test_phase3_acceptance.py`.
+- Run the Phase 4 business acceptance layer with `python -m pytest tests/test_phase4_runner.py tests/test_phase4_acceptance.py`.
 - The acceptance suite validates workbook import reconciliation for all `forecast_grain x forecast_frequency` combinations, both `demand_basis` modes, authoritative `monthlyized_output.csv` generation, runner consistency against normalized monthly outputs, calendar horizon coverage, output-key uniqueness, actionable validation context, and the current Phase 1 CML prevalent guardrails.
 
 ## Phase 1 Demand Basis
@@ -313,6 +381,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `templates/CBX250_Model_Assumptions_Template.xlsx` `Scenario_Controls!F2`
 - The Phase 2 acceptance suite validates the deterministic cascade from accepted `monthlyized_output.csv` into doses, FG, SS, DP, and DS without bypassing the Phase 1 normalized contract, including the approved base-case `0.15 mg` fixed dose, `0.0023 mg/kg x 80 kg` weight-based default, module-specific monthly dosing cadence, `1.0 mg` FG units, and ceiling vialing.
 - The Phase 3 acceptance suite validates the deterministic trade layer from accepted `phase2_deterministic_cascade.csv` into patient FG demand, Sub-Layer 2 pull, and ex-factory FG demand, including the 6-unit site stocking rule, matched SS site stocking, bullwhip flagging, January softening behavior, and CML prevalent channel drawdown behavior.
+- The Phase 4 acceptance suite validates deterministic production scheduling from accepted `phase3_trade_layer.csv` into DS/DP/FG/SS schedules, including work-back lead times, campaign minima, annual capacity clipping, bullwhip review, and SS synchronization.
 
 ## CML Prevalent Phase 1 Limitation
 - `CML_Prevalent` remains a separate module.
@@ -321,8 +390,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `exhaustion_rule` is captured and audited, but Phase 1 does not implement a full dynamic depletion or remainder engine.
 - Current Phase 1 behavior relies only on supplied annual totals, `launch_month_index`, `duration_months`, and profile logic. Fuller depletion mechanics are deferred.
 
-## Deferred Beyond Phase 3
-- production scheduling
+## Deferred Beyond Phase 4
 - inventory
 - financials
 - stochastic manufacturing performance yields

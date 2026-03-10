@@ -40,6 +40,8 @@ PHASE2_BUILD_SCOPE = "deterministic_dose_unit_cascade"
 PHASE2_UPSTREAM_DEMAND_CONTRACT = "monthlyized_output.csv"
 PHASE3_BUILD_SCOPE = "deterministic_trade_layer"
 PHASE3_UPSTREAM_DEMAND_CONTRACT = "phase2_deterministic_cascade.csv"
+PHASE4_BUILD_SCOPE = "deterministic_production_schedule"
+PHASE4_UPSTREAM_DEMAND_CONTRACT = "phase3_trade_layer.csv"
 DOSE_BASIS_FIXED = "fixed"
 DOSE_BASIS_WEIGHT_BASED = "weight_based"
 SUPPORTED_DOSE_BASES = (DOSE_BASIS_FIXED, DOSE_BASIS_WEIGHT_BASED)
@@ -49,6 +51,11 @@ CO_PACK_MODE_SEPARATE_SKU_FIRST = "separate_sku_first"
 SUPPORTED_CO_PACK_MODES = (CO_PACK_MODE_SEPARATE_SKU_FIRST,)
 PHASE3_DISABLED_CAPABILITIES = (
     "production",
+    "inventory",
+    "financials",
+    "monte_carlo",
+)
+PHASE4_DISABLED_CAPABILITIES = (
     "inventory",
     "financials",
     "monte_carlo",
