@@ -1,0 +1,43 @@
+[model]
+phase = 5
+build_scope = "deterministic_inventory_shelf_life"
+upstream_supply_contract = "phase3_trade_layer.csv + phase4_schedule_outputs.csv"
+
+[modules]
+enabled = ["AML", "MDS", "CML_Incident", "CML_Prevalent"]
+disabled = ["financials", "monte_carlo", "allocation_optimization"]
+
+[starting_inventory]
+ds_mg = 0.0
+dp_units = 0.0
+fg_units = 0.0
+ss_units = 0.0
+sublayer1_fg_units = 0.0
+sublayer2_fg_units = 0.0
+
+[shelf_life]
+# PLACEHOLDER deterministic base-case values until approved inventory shelf-life inputs are loaded.
+ds_months = 24
+dp_months = 24
+fg_months = 24
+ss_months = 24
+
+[policy]
+# PLACEHOLDER excess-cover threshold until approved inventory policy values are loaded.
+excess_inventory_threshold_months_of_cover = 6.0
+stockout_tolerance_units = 0.000001
+fefo_enabled = true
+ss_fg_match_required = true
+allow_prelaunch_inventory_build = true
+
+[conversion]
+dp_to_fg_yield = 0.98
+ds_to_dp_yield = 0.90
+ds_qty_per_dp_unit_mg = 1.0
+ds_overage_factor = 0.05
+ss_ratio_to_fg = 1.0
+
+[validation]
+enforce_unique_output_keys = true
+reconcile_phase4_receipts = true
+reconciliation_tolerance_units = 0.000001

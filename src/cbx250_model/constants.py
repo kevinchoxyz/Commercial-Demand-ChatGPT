@@ -42,6 +42,8 @@ PHASE3_BUILD_SCOPE = "deterministic_trade_layer"
 PHASE3_UPSTREAM_DEMAND_CONTRACT = "phase2_deterministic_cascade.csv"
 PHASE4_BUILD_SCOPE = "deterministic_production_schedule"
 PHASE4_UPSTREAM_DEMAND_CONTRACT = "phase3_trade_layer.csv"
+PHASE5_BUILD_SCOPE = "deterministic_inventory_shelf_life"
+PHASE5_UPSTREAM_SUPPLY_CONTRACT = "phase3_trade_layer.csv + phase4_schedule_outputs.csv"
 DOSE_BASIS_FIXED = "fixed"
 DOSE_BASIS_WEIGHT_BASED = "weight_based"
 SUPPORTED_DOSE_BASES = (DOSE_BASIS_FIXED, DOSE_BASIS_WEIGHT_BASED)
@@ -59,6 +61,11 @@ PHASE4_DISABLED_CAPABILITIES = (
     "inventory",
     "financials",
     "monte_carlo",
+)
+PHASE5_DISABLED_CAPABILITIES = (
+    "financials",
+    "monte_carlo",
+    "allocation_optimization",
 )
 
 # The current contract keeps CML as separate modules rather than an AML/MDS-style mix table.

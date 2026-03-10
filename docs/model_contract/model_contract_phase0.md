@@ -54,7 +54,7 @@ CML v1 rule:
 10. Board and executive outputs
 
 Current repo implementation boundary:
-- build steps 1 to 5
+- build steps 1 to 7
 - keep later steps as placeholders
 
 ## 3. Phase 1-Relevant Parameter Map
@@ -162,6 +162,27 @@ Current repo implementation boundary:
   - cumulative SS released
   - unmet demand units
 
+### 4.7 Phase 5 Output Contract
+- deterministic inventory and shelf-life consumes accepted Phase 3 trade flow signals and accepted Phase 4 schedule outputs
+- monthly inventory detail output is machine-readable at `scenario x geography x module x month x material_node` with:
+  - opening inventory
+  - receipts
+  - issues
+  - expired quantity
+  - ending inventory
+  - available non-expired inventory
+  - months of cover
+  - stockout / excess / expiry / FG-SS mismatch flags
+- monthly inventory summary output provides at least:
+  - DS inventory
+  - DP inventory
+  - FG inventory
+  - SS inventory
+  - Sub-Layer 1 FG inventory
+  - Sub-Layer 2 FG inventory
+  - expired quantities
+  - unmatched FG units
+
 ## 5. Validation Rules
 
 ### Hard Checks
@@ -184,12 +205,12 @@ Current repo implementation boundary:
 - deterministic dose and unit cascade consuming normalized monthly patient outputs
 - deterministic trade layer consuming accepted Phase 2 FG outputs
 - deterministic production scheduling consuming accepted Phase 3 ex-factory FG outputs
+- deterministic inventory and shelf-life consuming accepted Phase 3 trade flow signals and accepted Phase 4 supply receipts
 - validation framework
 - unit tests
 - example configs and sample input files
 
 ## 7. Explicitly Out Of Scope For The First Pass
-- inventory balance logic
 - financials
 - Monte Carlo / stochastic simulation
 - downstream reporting rollups

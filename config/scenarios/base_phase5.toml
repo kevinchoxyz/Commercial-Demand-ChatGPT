@@ -1,0 +1,12 @@
+scenario_name = "BASE_2029"
+parameter_config = "../parameters/phase5_inventory_layer.toml"
+
+[inputs]
+phase3_trade_layer = "../../data/outputs/base_phase3_trade_layer.csv"
+phase4_schedule_detail = "../../data/outputs/base_phase4_schedule_detail.csv"
+phase4_monthly_summary = "../../data/outputs/base_phase4_monthly_summary.csv"
+
+[outputs]
+inventory_detail = "../../data/outputs/base_phase5_inventory_detail.csv"
+monthly_inventory_summary = "../../data/outputs/base_phase5_monthly_inventory_summary.csv"
+cohort_audit = "../../data/outputs/base_phase5_inventory_cohort_audit.csv"
