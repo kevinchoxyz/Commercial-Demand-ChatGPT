@@ -1,6 +1,6 @@
 # CBX-250 Commercial Planning Model
 
-This repository contains the accepted Phase 1 deterministic demand foundation, the deterministic Phase 2 dose and unit cascade, the deterministic Phase 3 trade / channel-fill layer, and the deterministic Phase 4 production scheduling layer for the CBX-250 commercial planning model. Later-phase capabilities remain explicit placeholders.
+This repository contains the accepted Phase 1 deterministic demand foundation, the deterministic Phase 2 dose and unit cascade, the deterministic Phase 3 trade / channel-fill layer, the deterministic Phase 4 production scheduling layer, and the deterministic Phase 5 inventory and shelf-life layer for the CBX-250 commercial planning model. Later-phase capabilities remain explicit placeholders.
 
 ## Read These Files First
 - `docs/model_contract/model_contract_phase0.md`
@@ -14,12 +14,14 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - Deterministic Phase 2 dose and unit cascade
 - Deterministic Phase 3 trade / channel-fill layer
 - Deterministic Phase 4 production scheduling
+- Deterministic Phase 5 inventory and shelf-life
 - Monthly 240-month horizon
 - Config-driven setup
 - Demand logic for AML, MDS, CML Incident, and CML Prevalent
 - Phase 2 cascade outputs for doses, FG, SS, DP, and DS
 - Phase 3 trade outputs for patient FG demand, Sub-Layer 2 pull, and ex-factory FG demand
 - Phase 4 schedule outputs for DS, DP, FG, and SS starts/releases
+- Phase 5 rolling inventory outputs for DS, DP, FG, SS, Sub-Layer 1 FG, and Sub-Layer 2 FG
 - Configurable commercial forecast grain:
   - `module_level`
   - `segment_level`
@@ -34,6 +36,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `python -m pytest tests/test_phase2_runner.py tests/test_phase2_acceptance.py`
 - `python -m pytest tests/test_phase3_runner.py tests/test_phase3_acceptance.py`
 - `python -m pytest tests/test_phase4_runner.py tests/test_phase4_acceptance.py`
+- `python -m pytest tests/test_phase5_runner.py tests/test_phase5_acceptance.py`
 - `python -m pytest tests/test_forecast_workflow.py`
 - `python -m pytest tests/test_assumptions_template.py tests/test_assumptions_import.py`
 - `python scripts/run_phase1.py --scenario config/scenarios/base_phase1.toml`
@@ -46,6 +49,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `python scripts/run_phase2.py --scenario config/scenarios/base_phase2.toml`
 - `python scripts/run_phase3.py --scenario config/scenarios/base_phase3.toml`
 - `python scripts/run_phase4.py --scenario config/scenarios/base_phase4.toml`
+- `python scripts/run_phase5.py --scenario config/scenarios/base_phase5.toml`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029" --overwrite`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase3 --overwrite`
 
@@ -358,11 +362,69 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `supply_gap_flag` = supporting releases did not fully cover underlying patient demand for that month
   - pre-month-1 planned starts/releases are intentional under the no-starting-inventory assumption and are noted, not treated as supply gaps
 
+## Phase 5 Deterministic Inventory And Shelf-Life
+- Phase 5 consumes the accepted Phase 3 trade-layer output and the accepted Phase 4 schedule outputs only:
+  - `phase3_trade_layer.csv`
+  - `base_phase4_schedule_detail.csv`
+  - `base_phase4_monthly_summary.csv`
+- The inventory layer remains upstream-contract driven and agnostic to whether upstream treated demand originated from `treated_census` or `patient_starts`.
+- Current deterministic inventory logic:
+  - rolls monthly balances using `opening + receipts - issues - expiries = ending`
+  - uses month-bucketed receipt cohorts with deterministic FEFO consumption when `policy.fefo_enabled = true`
+  - carries pre-month-1 Phase 4 releases into month-1 opening inventory when `policy.allow_prelaunch_inventory_build = true`
+  - tracks DS, DP, FG central, SS central, Sub-Layer 1 FG, and Sub-Layer 2 FG balances
+  - flags stockout, excess inventory, expiry, and FG/SS mismatch risk
+  - treats configured starting inventory as a fresh month-1 opening cohort in the current deterministic implementation
+- Current Phase 5 config lives in:
+  - `config/scenarios/base_phase5.toml`
+  - `config/parameters/phase5_inventory_layer.toml`
+- Current clearly labeled placeholders pending fuller business approval:
+  - `shelf_life.*`
+  - `policy.excess_inventory_threshold_months_of_cover`
+
+## Phase 5 Outputs
+- `config/scenarios/base_phase5.toml` is the sample Phase 5 scenario.
+- `config/parameters/phase5_inventory_layer.toml` contains the deterministic inventory policy, shelf-life, starting inventory, and conversion assumptions.
+- The authoritative Phase 5 outputs are:
+  - `[outputs].inventory_detail`
+  - `[outputs].monthly_inventory_summary`
+  - `[outputs].cohort_audit`
+- Sample output paths:
+  - `data/outputs/base_phase5_inventory_detail.csv`
+  - `data/outputs/base_phase5_monthly_inventory_summary.csv`
+  - `data/outputs/base_phase5_inventory_cohort_audit.csv`
+- The inventory-detail CSV includes at least:
+  - `material_node`
+  - `opening_inventory`
+  - `receipts`
+  - `issues`
+  - `expired_quantity`
+  - `ending_inventory`
+  - `available_nonexpired_inventory`
+  - `months_of_cover`
+  - `stockout_flag`
+  - `excess_inventory_flag`
+  - `expiry_flag`
+  - `fg_ss_mismatch_flag`
+- The monthly inventory summary CSV includes at least:
+  - `ds_inventory_mg`
+  - `dp_inventory_units`
+  - `fg_inventory_units`
+  - `ss_inventory_units`
+  - `sublayer1_fg_inventory_units`
+  - `sublayer2_fg_inventory_units`
+  - `expired_ds_mg`
+  - `expired_dp_units`
+  - `expired_fg_units`
+  - `expired_ss_units`
+  - `unmatched_fg_units`
+
 ## Acceptance Tests
 - Run the business acceptance layer with `python -m pytest tests/test_phase1_acceptance.py`.
 - Run the Phase 2 business acceptance layer with `python -m pytest tests/test_phase2_runner.py tests/test_phase2_acceptance.py`.
 - Run the Phase 3 business acceptance layer with `python -m pytest tests/test_phase3_runner.py tests/test_phase3_acceptance.py`.
 - Run the Phase 4 business acceptance layer with `python -m pytest tests/test_phase4_runner.py tests/test_phase4_acceptance.py`.
+- Run the Phase 5 business acceptance layer with `python -m pytest tests/test_phase5_runner.py tests/test_phase5_acceptance.py`.
 - The acceptance suite validates workbook import reconciliation for all `forecast_grain x forecast_frequency` combinations, both `demand_basis` modes, authoritative `monthlyized_output.csv` generation, runner consistency against normalized monthly outputs, calendar horizon coverage, output-key uniqueness, actionable validation context, and the current Phase 1 CML prevalent guardrails.
 
 ## Phase 1 Demand Basis
@@ -389,6 +451,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - The Phase 2 acceptance suite validates the deterministic cascade from accepted `monthlyized_output.csv` into doses, FG, SS, DP, and DS without bypassing the Phase 1 normalized contract, including the approved base-case `0.15 mg` fixed dose, `0.0023 mg/kg x 80 kg` weight-based default, module-specific monthly dosing cadence, `1.0 mg` FG units, and ceiling vialing.
 - The Phase 3 acceptance suite validates the deterministic trade layer from accepted `phase2_deterministic_cascade.csv` into patient FG demand, Sub-Layer 2 pull, and ex-factory FG demand, including the 6-unit site stocking rule, matched SS site stocking, bullwhip flagging, January softening behavior, and CML prevalent channel drawdown behavior.
 - The Phase 4 acceptance suite validates deterministic production scheduling from accepted `phase3_trade_layer.csv` into DS/DP/FG/SS schedules, including work-back lead times, campaign minima, annual capacity clipping, bullwhip review, and SS synchronization.
+- The Phase 5 acceptance suite validates deterministic inventory from accepted `phase3_trade_layer.csv` plus accepted `base_phase4_schedule_detail.csv` and `base_phase4_monthly_summary.csv`, including rolling balances, pre-month-1 opening inventory, FEFO consumption, expiry exclusion, stockout flags, excess inventory flags, and FG/SS mismatch checks.
 
 ## CML Prevalent Phase 1 Limitation
 - `CML_Prevalent` remains a separate module.
@@ -397,11 +460,11 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `exhaustion_rule` is captured and audited, but Phase 1 does not implement a full dynamic depletion or remainder engine.
 - Current Phase 1 behavior relies only on supplied annual totals, `launch_month_index`, `duration_months`, and profile logic. Fuller depletion mechanics are deferred.
 
-## Deferred Beyond Phase 4
-- inventory
+## Deferred Beyond Phase 5
 - financials
-- stochastic manufacturing performance yields
+- stochastic expiry, lead times, and manufacturing performance yields
 - Monte Carlo
+- allocation optimization
 - full co-pack logic beyond the preserved `separate_sku_first` hook
 - dynamic CML prevalent depletion and remainder logic
 
