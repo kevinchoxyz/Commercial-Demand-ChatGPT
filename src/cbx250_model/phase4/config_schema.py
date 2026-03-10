@@ -117,6 +117,8 @@ class ReviewConfig:
     bullwhip_amplification_threshold: float
     bullwhip_review_window_months: int
     excess_build_threshold_ratio: float
+    supply_gap_tolerance_units: float
+    capacity_clip_tolerance_units: float
 
 
 @dataclass(frozen=True)
@@ -272,6 +274,14 @@ def load_phase4_config(scenario_path: Path) -> Phase4Config:
             excess_build_threshold_ratio=_parse_nonnegative_float(
                 review_data["excess_build_threshold_ratio"],
                 "review.excess_build_threshold_ratio",
+            ),
+            supply_gap_tolerance_units=_parse_nonnegative_float(
+                review_data["supply_gap_tolerance_units"],
+                "review.supply_gap_tolerance_units",
+            ),
+            capacity_clip_tolerance_units=_parse_nonnegative_float(
+                review_data["capacity_clip_tolerance_units"],
+                "review.capacity_clip_tolerance_units",
             ),
         ),
         stepdown=StepdownConfig(

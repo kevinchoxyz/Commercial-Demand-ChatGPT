@@ -93,7 +93,7 @@ def build_phase4_outputs(
     dp_config = StagePlanConfig(
         stage="DP",
         quantity_unit="units",
-        min_batch_quantity=config.dp.min_batch_size_units,
+        min_batch_quantity=None,
         max_batch_quantity=config.dp.max_batch_size_units,
         min_campaign_batches=config.dp.min_campaign_batches,
         annual_capacity_batches=config.dp.annual_capacity_batches,
@@ -112,7 +112,7 @@ def build_phase4_outputs(
     ds_config = StagePlanConfig(
         stage="DS",
         quantity_unit="mg",
-        min_batch_quantity=config.ds.min_batch_size_mg,
+        min_batch_quantity=None,
         max_batch_quantity=config.ds.max_batch_size_mg,
         min_campaign_batches=config.ds.min_campaign_batches,
         annual_capacity_batches=config.ds.annual_capacity_batches,
@@ -127,7 +127,7 @@ def build_phase4_outputs(
     ss_config = StagePlanConfig(
         stage="SS",
         quantity_unit="units",
-        min_batch_quantity=config.ss.batch_size_units,
+        min_batch_quantity=None,
         max_batch_quantity=config.ss.batch_size_units,
         min_campaign_batches=config.ss.min_campaign_batches,
         annual_capacity_batches=config.ss.annual_capacity_batches,
@@ -136,7 +136,7 @@ def build_phase4_outputs(
             config.ss.order_to_release_lead_time_weeks,
             config.conversion.weeks_per_month,
         ),
-        fixed_batch_quantity=config.ss.batch_size_units,
+        fixed_batch_quantity=None,
     )
 
     fg_requests = _build_stage_requests(anchor_date, resolved_signals, fg_config, "fg_release_units", config)
@@ -162,26 +162,32 @@ def build_phase4_outputs(
     summary_lookup: dict[tuple[str, str, str, int], ScheduleMonthlySummaryRecord] = {}
     for signal in resolved_signals:
         signal_key = signal.key
+        clipped_quantities_by_stage = {
+            "FG": fg_dropped.get(signal_key, 0.0),
+            "DP": dp_dropped.get(signal_key, 0.0),
+            "DS": ds_dropped.get(signal_key, 0.0),
+            "SS": ss_dropped.get(signal_key, 0.0),
+        }
         fg_supported = signal.fg_release_units
         dp_supported = max(
-            signal.fg_release_units - dp_dropped.get(signal_key, 0.0) * config.conversion.dp_to_fg_yield,
+            signal.fg_release_units - clipped_quantities_by_stage["DP"] * config.conversion.dp_to_fg_yield,
             0.0,
         )
         ds_supported = max(
-            signal.fg_release_units - ds_dropped.get(signal_key, 0.0) / _ds_mg_per_fg_unit(config),
+            signal.fg_release_units - clipped_quantities_by_stage["DS"] / _ds_mg_per_fg_unit(config),
             0.0,
         )
         ss_supported = max(
-            signal.fg_release_units - ss_dropped.get(signal_key, 0.0) / config.conversion.ss_ratio_to_fg,
+            signal.fg_release_units - clipped_quantities_by_stage["SS"] / config.conversion.ss_ratio_to_fg,
             0.0,
         )
         actual_fg_supported = min(fg_supported, dp_supported, ds_supported, ss_supported)
-        unmet_demand_units = max(signal.ex_factory_fg_demand_units - actual_fg_supported, 0.0)
+        unmet_demand_units = max(signal.fg_release_units - actual_fg_supported, 0.0)
         capacity_flag = any(
-            dropped_map.get(signal_key, 0.0) > 0.0
-            for dropped_map in (fg_dropped, dp_dropped, ds_dropped, ss_dropped)
+            clipped_quantity > config.review.capacity_clip_tolerance_units
+            for clipped_quantity in clipped_quantities_by_stage.values()
         )
-        prehorizon_supply_gap = any(
+        prehorizon_start_present = any(
             request.start_month_index < 1
             for request in (*fg_requests, *dp_requests, *ds_requests, *ss_requests)
             if request.scenario_name == signal.scenario_name
@@ -189,7 +195,7 @@ def build_phase4_outputs(
             and request.module == signal.module
             and request.demand_month_index == signal.month_index
         )
-        supply_gap_flag = unmet_demand_units > 0 or capacity_flag or prehorizon_supply_gap
+        supply_gap_flag = unmet_demand_units > config.review.supply_gap_tolerance_units
         bullwhip_review_flag = _has_bullwhip_review_flag(
             signal=signal,
             requests=(*fg_requests, *dp_requests, *ds_requests, *ss_requests),
@@ -214,13 +220,23 @@ def build_phase4_outputs(
 
         notes: list[str] = []
         if signal.channel_inventory_build_units > 0:
-            notes.append("Channel-build inflation excluded from new FG production.")
+            notes.append("Channel-build inflation excluded from new FG production and unmet-demand math.")
         if signal.stepdown_applied:
             notes.append("CML_Prevalent step-down hook active.")
-        if prehorizon_supply_gap:
-            notes.append("At least one supporting batch start falls before month 1.")
+        if prehorizon_start_present:
+            notes.append("At least one supporting batch start falls before month 1 by design under no-starting-inventory assumptions.")
         if capacity_flag:
-            notes.append("Supporting stage annual capacity clipped at least one batch.")
+            clipped_stage_notes = ", ".join(
+                f"{stage}={_format_stage_quantity(quantity)}"
+                for stage, quantity in clipped_quantities_by_stage.items()
+                if quantity > config.review.capacity_clip_tolerance_units
+            )
+            notes.append(
+                "Supporting stage annual capacity clipped required quantity for this demand month."
+                + (f" ({clipped_stage_notes})" if clipped_stage_notes else "")
+            )
+        if supply_gap_flag:
+            notes.append("Scheduled supporting releases did not fully cover underlying patient demand.")
 
         summary_record = ScheduleMonthlySummaryRecord(
             scenario_name=signal.scenario_name,
@@ -353,6 +369,9 @@ def _plan_stage_batches(
     requests: tuple[StageBatchRequest, ...],
     stage_config: StagePlanConfig,
 ) -> tuple[tuple[PlannedStageBatch, ...], dict[tuple[str, str, str, int], float]]:
+    if stage_config.min_campaign_batches == 0 and stage_config.annual_capacity_batches is None:
+        return _plan_direct_request_batches(requests, stage_config), {}
+
     grouped_requests: dict[tuple[str, str, str, str, int], list[StageBatchRequest]] = defaultdict(list)
     for request in requests:
         grouped_requests[
@@ -368,53 +387,64 @@ def _plan_stage_batches(
     planned_batches: list[PlannedStageBatch] = []
     dropped_by_signal: dict[tuple[str, str, str, int], float] = defaultdict(float)
     for (scenario_name, stage, module, geography_code, _release_year), year_requests in grouped_requests.items():
-        all_batches: list[StageBatchRequest] = []
-        for request in sorted(year_requests, key=lambda item: (item.release_month_index, item.demand_month_index)):
-            all_batches.extend(_split_request_into_batches(request, stage_config))
+        sorted_requests = sorted(year_requests, key=lambda item: (item.release_month_index, item.demand_month_index))
+        total_required_quantity = sum(request.quantity for request in sorted_requests)
+        if total_required_quantity <= 0:
+            continue
 
-        if all_batches and stage_config.min_campaign_batches > 0 and len(all_batches) < stage_config.min_campaign_batches:
-            all_batches.extend(
-                _build_min_campaign_batches(
-                    template_request=all_batches[-1],
-                    additional_batch_count=stage_config.min_campaign_batches - len(all_batches),
-                    stage_config=stage_config,
-                )
-            )
-
-        capacity_flag = (
+        preferred_batch_count = max(1, ceil(total_required_quantity / stage_config.max_batch_quantity))
+        planned_batch_count = max(preferred_batch_count, stage_config.min_campaign_batches)
+        capacity_flag = False
+        if (
             stage_config.annual_capacity_batches is not None
-            and len(all_batches) > stage_config.annual_capacity_batches
-        )
-        kept_batches = all_batches
-        if stage_config.annual_capacity_batches is not None and len(all_batches) > stage_config.annual_capacity_batches:
-            kept_batches = all_batches[: stage_config.annual_capacity_batches]
-            for dropped_batch in all_batches[stage_config.annual_capacity_batches :]:
-                dropped_by_signal[
-                    (
-                        dropped_batch.scenario_name,
-                        dropped_batch.geography_code,
-                        dropped_batch.module,
-                        dropped_batch.demand_month_index,
-                    )
-                ] += dropped_batch.quantity
+            and planned_batch_count > stage_config.annual_capacity_batches
+        ):
+            planned_batch_count = stage_config.annual_capacity_batches
+            capacity_flag = True
 
-        for batch_index, batch in enumerate(kept_batches, start=1):
+        supported_total_quantity = min(
+            total_required_quantity,
+            planned_batch_count * stage_config.max_batch_quantity,
+        )
+        supported_requests = _allocate_supported_request_quantities(
+            requests=sorted_requests,
+            supported_total_quantity=supported_total_quantity,
+            dropped_by_signal=dropped_by_signal,
+        )
+        if not supported_requests:
+            continue
+
+        batch_quantities = _build_batch_quantities(
+            total_quantity=supported_total_quantity,
+            preferred_batch_count=preferred_batch_count,
+            actual_batch_count=planned_batch_count,
+            max_batch_quantity=stage_config.max_batch_quantity,
+        )
+        batch_templates = _assign_batch_templates(
+            supported_requests=supported_requests,
+            batch_quantities=batch_quantities,
+        )
+
+        for batch_index, (template_request, batch_quantity) in enumerate(
+            zip(batch_templates, batch_quantities, strict=True),
+            start=1,
+        ):
             planned_batches.append(
                 PlannedStageBatch(
                     scenario_name=scenario_name,
                     stage=stage,
                     module=module,
                     geography_code=geography_code,
-                    demand_month_index=batch.demand_month_index,
-                    demand_calendar_month=batch.demand_calendar_month,
-                    release_month_index=batch.release_month_index,
-                    release_calendar_month=batch.release_calendar_month,
-                    start_month_index=batch.start_month_index,
-                    start_calendar_month=batch.start_calendar_month,
-                    quantity=batch.quantity,
-                    quantity_unit=batch.quantity_unit,
-                    stepdown_applied=batch.stepdown_applied,
-                    excess_build_flag=batch.excess_build_flag,
+                    demand_month_index=template_request.demand_month_index,
+                    demand_calendar_month=template_request.demand_calendar_month,
+                    release_month_index=template_request.release_month_index,
+                    release_calendar_month=template_request.release_calendar_month,
+                    start_month_index=template_request.start_month_index,
+                    start_calendar_month=template_request.start_calendar_month,
+                    quantity=batch_quantity,
+                    quantity_unit=template_request.quantity_unit,
+                    stepdown_applied=template_request.stepdown_applied,
+                    excess_build_flag=template_request.excess_build_flag,
                     batch_index_in_year=batch_index,
                     capacity_limit=float(stage_config.annual_capacity_batches or stage_config.max_batch_quantity),
                     capacity_metric=(
@@ -436,6 +466,64 @@ def _plan_stage_batches(
         )
     )
     return tuple(planned_batches), dropped_by_signal
+
+
+def _plan_direct_request_batches(
+    requests: tuple[StageBatchRequest, ...],
+    stage_config: StagePlanConfig,
+) -> tuple[PlannedStageBatch, ...]:
+    grouped_requests: dict[tuple[str, str, str, str, int], list[StageBatchRequest]] = defaultdict(list)
+    for request in requests:
+        grouped_requests[
+            (
+                request.scenario_name,
+                request.stage,
+                request.module,
+                request.geography_code,
+                request.release_calendar_month.year,
+            )
+        ].append(request)
+
+    planned_batches: list[PlannedStageBatch] = []
+    for (scenario_name, stage, module, geography_code, _release_year), year_requests in grouped_requests.items():
+        direct_batches: list[StageBatchRequest] = []
+        for request in sorted(year_requests, key=lambda item: (item.release_month_index, item.demand_month_index)):
+            direct_batches.extend(_split_request_into_batches(request, stage_config))
+
+        for batch_index, batch in enumerate(direct_batches, start=1):
+            planned_batches.append(
+                PlannedStageBatch(
+                    scenario_name=scenario_name,
+                    stage=stage,
+                    module=module,
+                    geography_code=geography_code,
+                    demand_month_index=batch.demand_month_index,
+                    demand_calendar_month=batch.demand_calendar_month,
+                    release_month_index=batch.release_month_index,
+                    release_calendar_month=batch.release_calendar_month,
+                    start_month_index=batch.start_month_index,
+                    start_calendar_month=batch.start_calendar_month,
+                    quantity=batch.quantity,
+                    quantity_unit=batch.quantity_unit,
+                    stepdown_applied=batch.stepdown_applied,
+                    excess_build_flag=batch.excess_build_flag,
+                    batch_index_in_year=batch_index,
+                    capacity_limit=stage_config.max_batch_quantity,
+                    capacity_metric="units_per_campaign",
+                    capacity_flag=False,
+                )
+            )
+
+    planned_batches.sort(
+        key=lambda item: (
+            item.release_month_index,
+            item.stage,
+            item.geography_code,
+            item.module,
+            item.batch_index_in_year,
+        )
+    )
+    return tuple(planned_batches)
 
 
 def _split_request_into_batches(
@@ -529,6 +617,106 @@ def _build_min_campaign_batches(
     ]
 
 
+def _allocate_supported_request_quantities(
+    *,
+    requests: list[StageBatchRequest],
+    supported_total_quantity: float,
+    dropped_by_signal: dict[tuple[str, str, str, int], float],
+) -> list[StageBatchRequest]:
+    remaining_supported_quantity = supported_total_quantity
+    supported_requests: list[StageBatchRequest] = []
+    for request in requests:
+        supported_quantity = min(request.quantity, max(remaining_supported_quantity, 0.0))
+        unsupported_quantity = max(request.quantity - supported_quantity, 0.0)
+        if supported_quantity > 0:
+            supported_requests.append(_copy_request_with_quantity(request, supported_quantity))
+        if unsupported_quantity > 0:
+            dropped_by_signal[
+                (
+                    request.scenario_name,
+                    request.geography_code,
+                    request.module,
+                    request.demand_month_index,
+                )
+            ] += unsupported_quantity
+        remaining_supported_quantity -= supported_quantity
+    return supported_requests
+
+
+def _build_batch_quantities(
+    *,
+    total_quantity: float,
+    preferred_batch_count: int,
+    actual_batch_count: int,
+    max_batch_quantity: float,
+) -> list[float]:
+    if total_quantity <= 0 or actual_batch_count <= 0:
+        return []
+    if actual_batch_count == preferred_batch_count:
+        full_batch_count = max(preferred_batch_count - 1, 0)
+        quantities = [max_batch_quantity] * full_batch_count
+        quantities.append(total_quantity - (max_batch_quantity * full_batch_count))
+        return quantities
+
+    remaining_quantity = total_quantity
+    remaining_batches = actual_batch_count
+    quantities: list[float] = []
+    for _ in range(actual_batch_count):
+        quantity = min(max_batch_quantity, remaining_quantity / remaining_batches)
+        quantities.append(quantity)
+        remaining_quantity -= quantity
+        remaining_batches -= 1
+    return quantities
+
+
+def _assign_batch_templates(
+    *,
+    supported_requests: list[StageBatchRequest],
+    batch_quantities: list[float],
+) -> list[StageBatchRequest]:
+    if not supported_requests:
+        return []
+
+    cumulative_supported_quantities: list[float] = []
+    running_total = 0.0
+    for request in supported_requests:
+        running_total += request.quantity
+        cumulative_supported_quantities.append(running_total)
+
+    templates: list[StageBatchRequest] = []
+    batch_coverage_start_threshold = 0.0
+    request_index = 0
+    for quantity in batch_quantities:
+        while (
+            request_index < len(cumulative_supported_quantities) - 1
+            and cumulative_supported_quantities[request_index] + 1e-9 < batch_coverage_start_threshold
+        ):
+            request_index += 1
+        templates.append(supported_requests[request_index])
+        batch_coverage_start_threshold += quantity
+    return templates
+
+
+def _copy_request_with_quantity(request: StageBatchRequest, quantity: float) -> StageBatchRequest:
+    return StageBatchRequest(
+        scenario_name=request.scenario_name,
+        stage=request.stage,
+        module=request.module,
+        geography_code=request.geography_code,
+        demand_month_index=request.demand_month_index,
+        demand_calendar_month=request.demand_calendar_month,
+        release_month_index=request.release_month_index,
+        release_calendar_month=request.release_calendar_month,
+        start_month_index=request.start_month_index,
+        start_calendar_month=request.start_calendar_month,
+        quantity=quantity,
+        quantity_unit=request.quantity_unit,
+        bullwhip_amplification_factor=request.bullwhip_amplification_factor,
+        excess_build_flag=request.excess_build_flag,
+        stepdown_applied=request.stepdown_applied,
+    )
+
+
 def _build_detail_records(
     *,
     batches: tuple[PlannedStageBatch, ...],
@@ -581,12 +769,12 @@ def _build_detail_records(
                 ),
                 capacity_limit=batch.capacity_limit,
                 capacity_metric=batch.capacity_metric,
-                capacity_flag=batch.capacity_flag,
-                supply_gap_flag=summary_record.supply_gap_flag or batch.start_month_index < 1,
+                capacity_flag=summary_record.capacity_flag,
+                supply_gap_flag=summary_record.supply_gap_flag,
                 excess_build_flag=summary_record.excess_build_flag,
                 bullwhip_review_flag=summary_record.bullwhip_review_flag,
                 ss_fg_sync_flag=summary_record.ss_fg_sync_flag,
-                notes=_detail_notes(batch),
+                notes=_detail_notes(batch, summary_record),
             )
         )
     return detail_records
@@ -697,14 +885,23 @@ def _batch_number(batch: PlannedStageBatch) -> str:
     )
 
 
-def _detail_notes(batch: PlannedStageBatch) -> str:
+def _detail_notes(
+    batch: PlannedStageBatch,
+    summary_record: ScheduleMonthlySummaryRecord,
+) -> str:
     notes: list[str] = []
     if batch.stepdown_applied:
         notes.append("Step-down window active.")
-    if batch.capacity_flag:
-        notes.append("Annual capacity limit applied.")
+    if summary_record.capacity_flag:
+        notes.append("Supporting stage annual capacity clipped required quantity for this demand month.")
+    if summary_record.supply_gap_flag:
+        notes.append("Supporting stage releases did not fully cover underlying patient demand.")
     if batch.start_month_index < 1:
-        notes.append("Planned start precedes month 1.")
-    if batch.excess_build_flag:
+        notes.append("Planned start precedes month 1 by design under no-starting-inventory assumptions.")
+    if summary_record.excess_build_flag:
         notes.append("Associated demand month exceeded excess-build threshold.")
     return " | ".join(notes)
+
+
+def _format_stage_quantity(value: float) -> str:
+    return f"{value:.6f}"

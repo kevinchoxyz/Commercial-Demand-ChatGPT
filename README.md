@@ -296,8 +296,9 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - decomposes Phase 3 into underlying patient consumption and channel-build inflation
   - sizes new FG production to underlying patient demand rather than temporary channel-fill inflation
   - works backward from FG release month into FG start, DP release/start, DS release/start, and SS start
-  - enforces deterministic stage batch-size, min-campaign, and annual-capacity rules
-  - flags lead-time-sensitive months, excess-build months, bullwhip-review months, and SS/FG sync exceptions
+  - uses max-batch-preferred deterministic sizing for DP, DS, and SS so the base-case plan avoids artificial minimum-batch padding while still respecting campaign counts and annual capacity
+  - treats pre-month-1 starts/releases as intentional when no starting inventory is assumed
+  - flags only true capacity-constrained or underlying-demand shortfall months, plus excess-build, bullwhip-review, and SS/FG sync exceptions
   - does not yet calculate rolling inventory balances, financials, or stochastic timing/yield behavior
 - Current Phase 4 config lives in:
   - `config/scenarios/base_phase4.toml`
@@ -350,6 +351,12 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `cumulative_fg_released`
   - `cumulative_ss_released`
   - `unmet_demand_units`
+- Phase 4 refined output meanings:
+  - `unmet_demand_units` = true underlying patient-demand shortfall after deterministic FG/DP/DS/SS schedule support is applied
+  - excluded channel-build inflation from Phase 3 is not counted as unmet demand in Phase 4
+  - `capacity_flag` = required underlying quantity for that demand month could not be fully supported because a deterministic stage annual-capacity limit clipped support
+  - `supply_gap_flag` = supporting releases did not fully cover underlying patient demand for that month
+  - pre-month-1 planned starts/releases are intentional under the no-starting-inventory assumption and are noted, not treated as supply gaps
 
 ## Acceptance Tests
 - Run the business acceptance layer with `python -m pytest tests/test_phase1_acceptance.py`.

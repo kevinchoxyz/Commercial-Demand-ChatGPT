@@ -24,6 +24,8 @@ weeks_per_month = 4.33
 bullwhip_amplification_threshold = 1.25
 bullwhip_review_window_months = 2
 excess_build_threshold_ratio = 0.25
+supply_gap_tolerance_units = 0.000001
+capacity_clip_tolerance_units = 0.000001
 
 [stepdown]
 cml_prevalent_forward_window_months = 6

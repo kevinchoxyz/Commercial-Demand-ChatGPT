@@ -21,6 +21,8 @@ def test_phase4_checked_in_base_config_uses_expected_defaults() -> None:
     assert config.conversion.ds_to_dp_yield == pytest.approx(0.90)
     assert config.conversion.ds_qty_per_dp_unit_mg == pytest.approx(1.0)
     assert config.review.bullwhip_amplification_threshold == pytest.approx(1.25)
+    assert config.review.supply_gap_tolerance_units == pytest.approx(0.000001)
+    assert config.review.capacity_clip_tolerance_units == pytest.approx(0.000001)
     assert config.dp.min_campaign_batches == 3
     assert config.ds.annual_capacity_batches == 5
     assert config.ss.batch_size_units == pytest.approx(100000.0)
@@ -58,6 +60,58 @@ def test_phase4_workback_scheduling_applies_stage_lead_times_and_campaign_constr
     assert len(dp_rows) == 3
     assert len(ds_rows) == 3
     assert len(ss_rows) == 3
+    assert summary_row.supply_gap_flag is False
+    assert "before month 1 by design" in summary_row.notes.lower()
+
+
+def test_phase4_unmet_demand_excludes_channel_build_when_underlying_patient_supply_is_supported(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_phase4_scenario(
+        tmp_path,
+        scenario_name="CHANNEL_BUILD",
+        phase3_rows=[
+            'CHANNEL_BUILD,US,AML,1L_fit,1,2029-01-01,100000,0,0,0,0,0,200000,0,0,200000,1.4,true,100000,0,0,0,0,0,false,{},fixture',
+        ],
+    )
+
+    result = run_phase4_scenario(scenario_path)
+    summary_row = result.monthly_summary[0]
+
+    assert not result.validation.has_errors
+    assert summary_row.fg_release_units == pytest.approx(100000.0)
+    assert summary_row.ex_factory_fg_demand_units == pytest.approx(200000.0)
+    assert summary_row.unmet_demand_units == pytest.approx(0.0)
+    assert summary_row.capacity_flag is False
+    assert summary_row.supply_gap_flag is False
+    assert "channel-build inflation excluded" in summary_row.notes.lower()
+
+
+def test_phase4_dp_ds_ss_batching_uses_required_total_instead_of_minimum_batch_padding(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_phase4_scenario(
+        tmp_path,
+        scenario_name="BATCHING",
+        phase3_rows=[
+            'BATCHING,US,AML,1L_fit,1,2029-01-01,100000,0,0,0,0,0,100000,0,0,100000,1,false,0,0,0,0,0,0,false,{},fixture',
+        ],
+    )
+
+    result = run_phase4_scenario(scenario_path)
+    summary_row = result.monthly_summary[0]
+    dp_rows = [row for row in result.schedule_detail if row.stage == "DP"]
+    ds_rows = [row for row in result.schedule_detail if row.stage == "DS"]
+    ss_rows = [row for row in result.schedule_detail if row.stage == "SS"]
+
+    assert not result.validation.has_errors
+    assert len(dp_rows) == 3
+    assert len(ds_rows) == 3
+    assert len(ss_rows) == 3
+    assert sum(row.batch_quantity for row in dp_rows) == pytest.approx(summary_row.dp_release_units)
+    assert sum(row.batch_quantity for row in ds_rows) == pytest.approx(summary_row.ds_release_quantity_mg)
+    assert sum(row.batch_quantity for row in ss_rows) == pytest.approx(summary_row.ss_release_units)
+    assert sum(row.batch_quantity for row in ss_rows) < 300000.0
 
 
 def test_phase4_annual_capacity_flags_and_unmet_demand_trigger_under_large_volume(tmp_path: Path) -> None:
@@ -78,6 +132,52 @@ def test_phase4_annual_capacity_flags_and_unmet_demand_trigger_under_large_volum
     assert any(row.unmet_demand_units > 0 for row in result.monthly_summary)
     assert any(row.supply_gap_flag for row in result.monthly_summary)
     assert any(row.capacity_flag for row in result.schedule_detail if row.stage == "DP")
+
+
+def test_phase4_near_zero_capacity_clip_and_gap_do_not_trigger_flags(tmp_path: Path) -> None:
+    scenario_path = write_phase4_scenario(
+        tmp_path,
+        scenario_name="TOLERANCE",
+        phase3_rows=[
+            'TOLERANCE,US,AML,1L_fit,1,2029-01-01,98.0000000000001,0,0,0,0,0,98.0000000000001,0,0,98.0000000000001,1,false,0,0,0,0,0,0,false,{},fixture',
+        ],
+        dp_min_batch_size_units=100.0,
+        dp_max_batch_size_units=100.0,
+        dp_annual_capacity_batches=1,
+        ds_max_batch_size_kg=4.0,
+        ds_annual_capacity_batches=5,
+        ss_batch_size_units=100000.0,
+        ss_annual_capacity_batches=10,
+    )
+
+    result = run_phase4_scenario(scenario_path)
+    summary_row = result.monthly_summary[0]
+
+    assert not result.validation.has_errors
+    assert summary_row.unmet_demand_units < 0.000001
+    assert summary_row.capacity_flag is False
+    assert summary_row.supply_gap_flag is False
+
+
+def test_phase4_material_capacity_clip_above_tolerance_still_triggers_flags(tmp_path: Path) -> None:
+    scenario_path = write_phase4_scenario(
+        tmp_path,
+        scenario_name="TOLERANCE_MATERIAL",
+        phase3_rows=[
+            'TOLERANCE_MATERIAL,US,AML,1L_fit,1,2029-01-01,196,0,0,0,0,0,196,0,0,196,1,false,0,0,0,0,0,0,false,{},fixture',
+        ],
+        dp_min_batch_size_units=100.0,
+        dp_max_batch_size_units=100.0,
+        dp_annual_capacity_batches=1,
+    )
+
+    result = run_phase4_scenario(scenario_path)
+    summary_row = result.monthly_summary[0]
+
+    assert not result.validation.has_errors
+    assert summary_row.unmet_demand_units > 0.000001
+    assert summary_row.capacity_flag is True
+    assert summary_row.supply_gap_flag is True
 
 
 def test_phase4_ss_sync_rule_flags_when_cumulative_fg_exceeds_ss(tmp_path: Path) -> None:
@@ -154,3 +254,25 @@ def test_phase4_output_keys_are_unique_and_writers_emit_machine_readable_csv(tmp
     assert float(summary_rows[0]["ds_release_quantity_g"]) == pytest.approx(
         float(summary_rows[0]["ds_release_quantity_mg"]) / 1000.0
     )
+
+
+def test_phase4_pre_month1_starts_remain_allowed_without_gap_flags(tmp_path: Path) -> None:
+    scenario_path = write_phase4_scenario(
+        tmp_path,
+        scenario_name="PREHORIZON",
+        phase3_rows=[
+            'PREHORIZON,US,AML,1L_fit,1,2029-01-01,60000,0,0,0,0,0,60000,0,0,60000,1,false,0,0,0,0,0,0,false,{},fixture',
+        ],
+    )
+
+    result = run_phase4_scenario(scenario_path)
+
+    assert not result.validation.has_errors
+    assert result.monthly_summary[0].supply_gap_flag is False
+    assert any(row.planned_start_month_index < 1 for row in result.schedule_detail)
+    assert all(
+        row.supply_gap_flag is False
+        for row in result.schedule_detail
+        if row.planned_start_month_index < 1
+    )
+    assert any("precedes month 1 by design" in row.notes.lower() for row in result.schedule_detail)
