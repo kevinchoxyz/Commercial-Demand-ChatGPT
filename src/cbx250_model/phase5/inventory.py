@@ -265,6 +265,12 @@ def _build_group_inventory(
         if month_index < 1 or signal is None:
             continue
 
+        required_administrable_demand_by_node = _build_required_administrable_demand_by_node(
+            signal=signal,
+            config=config,
+            ds_requested=ds_requested,
+            dp_requested=dp_requested,
+        )
         ending_inventory = {node: _cohort_total(node_states[node]) for node in INVENTORY_NODES}
         available_fg_end = ending_inventory[FG_CENTRAL_NODE]
         available_ss_end = ending_inventory[SS_CENTRAL_NODE]
@@ -275,6 +281,15 @@ def _build_group_inventory(
         )
         fg_ss_mismatch_units = max(available_fg_end - matched_administrable_fg_units, 0.0)
         fg_ss_mismatch_flag = fg_ss_mismatch_units > config.policy.stockout_tolerance_units
+        raw_demand_signal_by_node = _build_raw_demand_signal_by_node(
+            signal=signal,
+            fg_requested=fg_requested,
+            sublayer1_requested=sublayer1_requested,
+            sublayer2_requested=sublayer2_requested,
+            ds_requested=ds_requested,
+            dp_requested=dp_requested,
+            ss_required_units=actual_ss_required,
+        )
 
         detail_payloads = {
             DS_NODE: _build_detail_payload(
@@ -283,7 +298,8 @@ def _build_group_inventory(
                 ds_actual,
                 expired_quantities[DS_NODE],
                 ending_inventory[DS_NODE],
-                ds_requested,
+                raw_demand_signal_by_node[DS_NODE],
+                required_administrable_demand_by_node[DS_NODE],
                 config.policy.excess_inventory_threshold_months_of_cover,
                 config.policy.stockout_tolerance_units,
             ),
@@ -293,7 +309,8 @@ def _build_group_inventory(
                 dp_actual,
                 expired_quantities[DP_NODE],
                 ending_inventory[DP_NODE],
-                dp_requested,
+                raw_demand_signal_by_node[DP_NODE],
+                required_administrable_demand_by_node[DP_NODE],
                 config.policy.excess_inventory_threshold_months_of_cover,
                 config.policy.stockout_tolerance_units,
             ),
@@ -303,7 +320,8 @@ def _build_group_inventory(
                 fg_actual,
                 expired_quantities[FG_CENTRAL_NODE],
                 ending_inventory[FG_CENTRAL_NODE],
-                fg_requested,
+                raw_demand_signal_by_node[FG_CENTRAL_NODE],
+                required_administrable_demand_by_node[FG_CENTRAL_NODE],
                 config.policy.excess_inventory_threshold_months_of_cover,
                 config.policy.stockout_tolerance_units,
             ),
@@ -313,7 +331,8 @@ def _build_group_inventory(
                 ss_actual,
                 expired_quantities[SS_CENTRAL_NODE],
                 ending_inventory[SS_CENTRAL_NODE],
-                actual_ss_required,
+                raw_demand_signal_by_node[SS_CENTRAL_NODE],
+                required_administrable_demand_by_node[SS_CENTRAL_NODE],
                 config.policy.excess_inventory_threshold_months_of_cover,
                 config.policy.stockout_tolerance_units,
             ),
@@ -323,7 +342,8 @@ def _build_group_inventory(
                 sublayer1_actual,
                 expired_quantities[SUBLAYER1_NODE],
                 ending_inventory[SUBLAYER1_NODE],
-                sublayer1_requested,
+                raw_demand_signal_by_node[SUBLAYER1_NODE],
+                required_administrable_demand_by_node[SUBLAYER1_NODE],
                 config.policy.excess_inventory_threshold_months_of_cover,
                 config.policy.stockout_tolerance_units,
             ),
@@ -333,7 +353,8 @@ def _build_group_inventory(
                 sublayer2_actual,
                 expired_quantities[SUBLAYER2_NODE],
                 ending_inventory[SUBLAYER2_NODE],
-                sublayer2_requested,
+                raw_demand_signal_by_node[SUBLAYER2_NODE],
+                required_administrable_demand_by_node[SUBLAYER2_NODE],
                 config.policy.excess_inventory_threshold_months_of_cover,
                 config.policy.stockout_tolerance_units,
             ),
@@ -364,6 +385,12 @@ def _build_group_inventory(
                     ending_inventory=payload["ending_inventory"],
                     available_nonexpired_inventory=payload["available_nonexpired_inventory"],
                     demand_signal_units=payload["demand_signal_units"],
+                    required_administrable_demand_units=payload[
+                        "required_administrable_demand_units"
+                    ],
+                    policy_excluded_channel_build_units=payload[
+                        "policy_excluded_channel_build_units"
+                    ],
                     shortfall_units=payload["shortfall_units"],
                     months_of_cover=payload["months_of_cover"],
                     stockout_flag=payload["stockout_flag"],
@@ -668,6 +695,45 @@ def _matched_fg_units(available_fg_units: float, available_ss_units: float, conf
     return min(available_fg_units, available_ss_units / config.conversion.ss_ratio_to_fg)
 
 
+def _build_required_administrable_demand_by_node(
+    *,
+    signal: InventorySignal,
+    config: Phase5Config,
+    ds_requested: float,
+    dp_requested: float,
+) -> dict[str, float]:
+    patient_support_units = signal.patient_fg_demand_units
+    patient_plus_wastage_units = signal.patient_fg_demand_units + signal.sublayer2_wastage_units
+    return {
+        DS_NODE: ds_requested,
+        DP_NODE: dp_requested,
+        FG_CENTRAL_NODE: patient_support_units,
+        SS_CENTRAL_NODE: patient_support_units * config.conversion.ss_ratio_to_fg,
+        SUBLAYER1_NODE: patient_plus_wastage_units,
+        SUBLAYER2_NODE: patient_plus_wastage_units,
+    }
+
+
+def _build_raw_demand_signal_by_node(
+    *,
+    signal: InventorySignal,
+    fg_requested: float,
+    sublayer1_requested: float,
+    sublayer2_requested: float,
+    ds_requested: float,
+    dp_requested: float,
+    ss_required_units: float,
+) -> dict[str, float]:
+    return {
+        DS_NODE: ds_requested,
+        DP_NODE: dp_requested,
+        FG_CENTRAL_NODE: fg_requested,
+        SS_CENTRAL_NODE: ss_required_units,
+        SUBLAYER1_NODE: sublayer1_requested,
+        SUBLAYER2_NODE: sublayer2_requested,
+    }
+
+
 def _build_detail_payload(
     opening_inventory: float,
     receipts: float,
@@ -675,12 +741,21 @@ def _build_detail_payload(
     expired_quantity: float,
     ending_inventory: float,
     demand_signal_units: float,
+    required_administrable_demand_units: float,
     excess_threshold_months_of_cover: float,
     stockout_tolerance_units: float,
 ) -> dict[str, float | bool]:
-    shortfall_units = max(demand_signal_units - issues, 0.0)
+    shortfall_units = max(required_administrable_demand_units - issues, 0.0)
     available_nonexpired_inventory = ending_inventory
-    months_of_cover = _months_of_cover(available_nonexpired_inventory, demand_signal_units, stockout_tolerance_units)
+    months_of_cover = _months_of_cover(
+        available_nonexpired_inventory,
+        required_administrable_demand_units,
+        stockout_tolerance_units,
+    )
+    policy_excluded_channel_build_units = max(
+        demand_signal_units - required_administrable_demand_units,
+        0.0,
+    )
     return {
         "opening_inventory": opening_inventory,
         "receipts": receipts,
@@ -689,10 +764,15 @@ def _build_detail_payload(
         "ending_inventory": ending_inventory,
         "available_nonexpired_inventory": available_nonexpired_inventory,
         "demand_signal_units": demand_signal_units,
+        "required_administrable_demand_units": required_administrable_demand_units,
+        "policy_excluded_channel_build_units": policy_excluded_channel_build_units,
         "shortfall_units": shortfall_units,
         "months_of_cover": months_of_cover,
         "stockout_flag": shortfall_units > stockout_tolerance_units,
-        "excess_inventory_flag": months_of_cover > excess_threshold_months_of_cover,
+        "excess_inventory_flag": (
+            required_administrable_demand_units > stockout_tolerance_units
+            and months_of_cover > excess_threshold_months_of_cover
+        ),
         "expiry_flag": expired_quantity > stockout_tolerance_units,
     }
 
@@ -705,7 +785,7 @@ def _months_of_cover(
     if ending_inventory <= stockout_tolerance_units:
         return 0.0
     if demand_signal_units <= stockout_tolerance_units:
-        return math.inf
+        return 0.0
     return ending_inventory / demand_signal_units
 
 
@@ -750,8 +830,19 @@ def _build_node_notes(
     for node, expired_quantity in expired_quantities.items():
         if expired_quantity > config.policy.stockout_tolerance_units:
             notes[node].append("Expired inventory was removed before consumption.")
+        policy_excluded_units = float(
+            detail_payloads[node]["policy_excluded_channel_build_units"]
+        )
+        if policy_excluded_units > config.policy.stockout_tolerance_units:
+            notes[node].append(
+                "Temporary channel-build demand was excluded from true shortage and excess flagging."
+            )
         if detail_payloads[node]["stockout_flag"]:
-            notes[node].append("Demand exceeded available non-expired inventory for this node.")
+            notes[node].append(
+                "Required administrable demand exceeded available non-expired inventory for this node."
+            )
         if detail_payloads[node]["excess_inventory_flag"]:
-            notes[node].append("Ending inventory exceeded the configured months-of-cover threshold.")
+            notes[node].append(
+                "Ending inventory exceeded the configured months-of-cover threshold relative to required administrable demand."
+            )
     return {node: " | ".join(node_notes) for node, node_notes in notes.items()}

@@ -317,6 +317,12 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `sublayer2_inventory_adjustment_units`
   - `new_site_stocking_orders_units`
   - `ss_site_stocking_units`
+  - `raw_new_certified_sites`
+  - `site_stocking_units_before_segment_allocation`
+  - `ss_site_stocking_units_before_segment_allocation`
+  - `site_stocking_allocation_share`
+  - `allocated_new_site_stocking_orders_units`
+  - `allocated_ss_site_stocking_units`
   - `sublayer2_pull_units`
   - `sublayer1_inventory_target_units`
   - `sublayer1_inventory_adjustment_units`
@@ -329,6 +335,11 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `new_certified_sites`
   - `sublayer2_inventory_on_hand_end_units`
   - `sublayer1_inventory_on_hand_end_units`
+- Phase 3 site-stocking audit interpretation:
+  - `new_site_stocking_orders_units` and `ss_site_stocking_units` remain the allocated segment-level values for backward compatibility.
+  - The exact 6-units-per-site rule is now auditable directly in the same row set through `raw_new_certified_sites`, `site_stocking_units_before_segment_allocation`, and `allocated_*` fields.
+  - The clean rule is: `site_stocking_units_before_segment_allocation = raw_new_certified_sites * 6` and `ss_site_stocking_units_before_segment_allocation = site_stocking_units_before_segment_allocation`.
+  - Segment allocation remains explicit through `site_stocking_allocation_share`, and allocated values reconcile back exactly to the non-segmented site-stocking total by `scenario x geography x module x month`.
 
 ## Phase 4 Deterministic Production Scheduling
 - Phase 4 consumes the accepted Phase 3 trade-layer output only: `phase3_trade_layer.csv`.
@@ -439,11 +450,19 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `expired_quantity`
   - `ending_inventory`
   - `available_nonexpired_inventory`
+  - `demand_signal_units`
+  - `required_administrable_demand_units`
+  - `policy_excluded_channel_build_units`
   - `months_of_cover`
   - `stockout_flag`
   - `excess_inventory_flag`
   - `expiry_flag`
   - `fg_ss_mismatch_flag`
+- Refined Phase 5 inventory interpretation:
+  - `stockout_flag` now means true shortage against required administrable demand only.
+  - Temporary channel-build inflation from Phase 3 is preserved in `demand_signal_units` for traceability, but excluded from true shortage and excess flagging through `policy_excluded_channel_build_units`.
+  - `required_administrable_demand_units` is the demand basis used for `shortfall_units`, `stockout_flag`, and `months_of_cover`.
+  - `excess_inventory_flag` now requires both positive required administrable demand and ending months of cover above the configured threshold; zero-demand months no longer default to `inf` cover and false-positive excess.
 - The monthly inventory summary CSV includes at least:
   - `ds_inventory_mg`
   - `dp_inventory_units`

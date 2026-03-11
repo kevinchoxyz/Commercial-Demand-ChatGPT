@@ -267,6 +267,8 @@ class InventoryDetailRecord:
     ending_inventory: float
     available_nonexpired_inventory: float
     demand_signal_units: float
+    required_administrable_demand_units: float
+    policy_excluded_channel_build_units: float
     shortfall_units: float
     months_of_cover: float
     stockout_flag: bool
@@ -302,6 +304,12 @@ class InventoryDetailRecord:
             "ending_inventory": _format_numeric(self.ending_inventory),
             "available_nonexpired_inventory": _format_numeric(self.available_nonexpired_inventory),
             "demand_signal_units": _format_numeric(self.demand_signal_units),
+            "required_administrable_demand_units": _format_numeric(
+                self.required_administrable_demand_units
+            ),
+            "policy_excluded_channel_build_units": _format_numeric(
+                self.policy_excluded_channel_build_units
+            ),
             "shortfall_units": _format_numeric(self.shortfall_units),
             "months_of_cover": _format_numeric(self.months_of_cover),
             "stockout_flag": json.dumps(self.stockout_flag),

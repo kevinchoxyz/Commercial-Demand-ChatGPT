@@ -54,6 +54,12 @@ def test_phase3_two_sublayer_trade_math_uses_site_stocking_and_targets(tmp_path:
     assert row.patient_fg_demand_units == pytest.approx(10.0)
     assert row.active_certified_sites == pytest.approx(1.0)
     assert row.new_certified_sites == pytest.approx(1.0)
+    assert row.raw_new_certified_sites == pytest.approx(1.0)
+    assert row.site_stocking_units_before_segment_allocation == pytest.approx(6.0)
+    assert row.ss_site_stocking_units_before_segment_allocation == pytest.approx(6.0)
+    assert row.site_stocking_allocation_share == pytest.approx(1.0)
+    assert row.allocated_new_site_stocking_orders_units == pytest.approx(6.0)
+    assert row.allocated_ss_site_stocking_units == pytest.approx(6.0)
     assert row.new_site_stocking_orders_units == pytest.approx(6.0)
     assert row.ss_site_stocking_units == pytest.approx(6.0)
     assert row.sublayer2_inventory_target_units == pytest.approx(10.0)
@@ -64,6 +70,54 @@ def test_phase3_two_sublayer_trade_math_uses_site_stocking_and_targets(tmp_path:
     assert row.ex_factory_fg_demand_units == pytest.approx(52.0)
     assert row.bullwhip_amplification_factor == pytest.approx(5.2)
     assert row.bullwhip_flag is True
+
+
+def test_phase3_site_stocking_allocation_reconciles_exactly_back_to_six_units_per_site(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_phase3_scenario(
+        tmp_path,
+        scenario_name="SITE_AUDIT",
+        phase2_rows=[
+            "SITE_AUDIT,US,AML,1L_fit,1,2029-01-01,6,fixture",
+            "SITE_AUDIT,US,AML,RR,1,2029-01-01,4,fixture",
+        ],
+        sublayer1_target_weeks_on_hand=4.0,
+        sublayer2_target_weeks_on_hand=4.0,
+        sublayer1_launch_fill_months_of_demand=0.0,
+        channel_fill_start_prelaunch_weeks=0.0,
+        sublayer2_fill_distribution_weeks=4.0,
+        weeks_per_month=4.0,
+        geography_defaults_overrides={
+            "US": {
+                "site_activation_rate": 1.0,
+                "certified_sites_at_launch": 1.0,
+                "certified_sites_at_peak": 1.0,
+            }
+        },
+    )
+
+    result = run_phase3_scenario(scenario_path)
+    month1_rows = [row for row in result.outputs if row.month_index == 1]
+
+    assert not result.validation.has_errors
+    assert len(month1_rows) == 2
+    assert all(row.raw_new_certified_sites == pytest.approx(1.0) for row in month1_rows)
+    assert all(
+        row.site_stocking_units_before_segment_allocation == pytest.approx(6.0)
+        for row in month1_rows
+    )
+    assert all(
+        row.ss_site_stocking_units_before_segment_allocation == pytest.approx(6.0)
+        for row in month1_rows
+    )
+    assert sum(row.site_stocking_allocation_share for row in month1_rows) == pytest.approx(1.0)
+    assert sum(row.allocated_new_site_stocking_orders_units for row in month1_rows) == pytest.approx(
+        6.0
+    )
+    assert sum(row.allocated_ss_site_stocking_units for row in month1_rows) == pytest.approx(6.0)
+    assert sum(row.new_site_stocking_orders_units for row in month1_rows) == pytest.approx(6.0)
+    assert sum(row.ss_site_stocking_units for row in month1_rows) == pytest.approx(6.0)
 
 
 def test_phase3_cml_prevalent_drawdown_can_run_below_patient_demand_due_to_channel_inventory(
@@ -200,6 +254,11 @@ def test_phase3_output_keys_are_unique_and_writer_emits_machine_readable_csv(
     assert len({row.key for row in result.outputs}) == len(result.outputs)
     assert len(rows) == 2
     assert rows[0]["trade_parameters_used"].startswith("{")
+    assert "site_stocking_units_before_segment_allocation" in rows[0]
+    assert "allocated_new_site_stocking_orders_units" in rows[0]
     assert sum(float(row["patient_fg_demand_units"]) for row in rows) == pytest.approx(10.0)
     assert sum(float(row["ex_factory_fg_demand_units"]) for row in rows) == pytest.approx(52.0)
+    assert sum(float(row["allocated_new_site_stocking_orders_units"]) for row in rows) == pytest.approx(
+        6.0
+    )
     assert rows[0]["bullwhip_flag"] in {"true", "false"}

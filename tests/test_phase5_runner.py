@@ -124,9 +124,46 @@ def test_phase5_stockout_flag_triggers_only_on_true_shortage_and_no_starting_inv
 
     assert not result.validation.has_errors
     assert fg_row.opening_inventory == pytest.approx(0.0)
+    assert fg_row.required_administrable_demand_units == pytest.approx(10.0)
+    assert fg_row.policy_excluded_channel_build_units == pytest.approx(0.0)
     assert fg_row.shortfall_units == pytest.approx(10.0)
     assert fg_row.stockout_flag is True
     assert result.monthly_summary[0].stockout_flag is True
+
+
+def test_phase5_policy_excluded_channel_build_does_not_trigger_stockout_for_patient_supported_demand(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_phase5_scenario(
+        tmp_path,
+        scenario_name="CHANNEL_POLICY",
+        phase3_rows=[
+            "CHANNEL_POLICY,US,AML,1L_fit,1,2029-01-01,10,0,0,0,0,0,10,0,0,30,3,false,20,10,1,1,0,0,false,{},fixture",
+        ],
+        phase4_detail_rows=[
+            "CHANNEL_POLICY,DS,AML,US,DS-AML-US-2029-001,1,2029-01-01,1,2029-01-01,1,2029-01-01,1,2029-01-01,11.904761904761905,mg,11.904761904761905,1,999,batches_per_year,false,false,false,false,true,fixture",
+            "CHANNEL_POLICY,DP,AML,US,DP-AML-US-2029-001,1,2029-01-01,1,2029-01-01,1,2029-01-01,1,2029-01-01,10.204081632653061,units,10.204081632653061,1,999,batches_per_year,false,false,false,false,true,fixture",
+            "CHANNEL_POLICY,FG,AML,US,FG-AML-US-2029-001,1,2029-01-01,1,2029-01-01,1,2029-01-01,1,2029-01-01,10,units,10,1,999,batches_per_year,false,false,false,false,true,fixture",
+            "CHANNEL_POLICY,SS,AML,US,SS-AML-US-2029-001,1,2029-01-01,1,2029-01-01,1,2029-01-01,1,2029-01-01,10,units,10,1,999,batches_per_year,false,false,false,false,true,fixture",
+        ],
+        phase4_summary_rows=[
+            "CHANNEL_POLICY,US,AML,1,2029-01-01,10,30,10,20,20,10,10.204081632653061,11.904761904761905,0.0119047619047619,1.19047619047619e-05,10,10,10,0,false,false,false,false,true,false,fixture",
+        ],
+    )
+
+    result = run_phase5_scenario(scenario_path)
+    fg_row = next(
+        row for row in result.inventory_detail if row.material_node == "FG_Central" and row.month_index == 1
+    )
+    summary_row = result.monthly_summary[0]
+
+    assert not result.validation.has_errors
+    assert fg_row.demand_signal_units == pytest.approx(30.0)
+    assert fg_row.required_administrable_demand_units == pytest.approx(10.0)
+    assert fg_row.policy_excluded_channel_build_units == pytest.approx(20.0)
+    assert fg_row.shortfall_units == pytest.approx(0.0)
+    assert fg_row.stockout_flag is False
+    assert summary_row.stockout_flag is False
 
 
 def test_phase5_excess_inventory_flag_uses_months_of_cover_threshold(tmp_path: Path) -> None:
@@ -153,6 +190,35 @@ def test_phase5_excess_inventory_flag_uses_months_of_cover_threshold(tmp_path: P
     assert fg_row.ending_inventory == pytest.approx(90.0)
     assert fg_row.months_of_cover == pytest.approx(9.0)
     assert fg_row.excess_inventory_flag is True
+
+
+def test_phase5_zero_current_required_demand_does_not_create_false_positive_excess_inventory(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_phase5_scenario(
+        tmp_path,
+        scenario_name="ZERO_DEMAND_EXCESS",
+        starting_dp_units=50.0,
+        phase3_rows=[
+            "ZERO_DEMAND_EXCESS,US,AML,1L_fit,1,2029-01-01,0,0,0,0,0,0,0,0,0,0,0,false,0,0,0,0,0,0,false,{},fixture",
+        ],
+        phase4_summary_rows=[
+            "ZERO_DEMAND_EXCESS,US,AML,1,2029-01-01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,false,false,false,false,true,false,fixture",
+        ],
+    )
+
+    result = run_phase5_scenario(scenario_path)
+    dp_row = next(
+        row for row in result.inventory_detail if row.material_node == "DP" and row.month_index == 1
+    )
+    summary_row = result.monthly_summary[0]
+
+    assert not result.validation.has_errors
+    assert dp_row.ending_inventory == pytest.approx(50.0)
+    assert dp_row.required_administrable_demand_units == pytest.approx(0.0)
+    assert dp_row.months_of_cover == pytest.approx(0.0)
+    assert dp_row.excess_inventory_flag is False
+    assert summary_row.excess_inventory_flag is False
 
 
 def test_phase5_fg_ss_mismatch_logic_flags_unmatched_fg(tmp_path: Path) -> None:
@@ -206,5 +272,7 @@ def test_phase5_output_keys_are_unique_and_writers_emit_machine_readable_csv(tmp
     assert len({row.key for row in result.cohort_audit}) == len(result.cohort_audit)
     assert any(row["material_node"] == "FG_Central" for row in detail_rows)
     assert any(row["material_node"] == "SubLayer2_FG" for row in detail_rows)
+    assert "required_administrable_demand_units" in detail_rows[0]
+    assert "policy_excluded_channel_build_units" in detail_rows[0]
     assert "unmatched_fg_units" in summary_rows[0]
     assert "cohort_id" in cohort_rows[0]

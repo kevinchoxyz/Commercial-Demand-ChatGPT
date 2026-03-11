@@ -119,6 +119,12 @@ class Phase3TradeRecord:
     ongoing_replenishment_component_units: float
     active_certified_sites: float
     new_certified_sites: float
+    raw_new_certified_sites: float
+    site_stocking_units_before_segment_allocation: float
+    ss_site_stocking_units_before_segment_allocation: float
+    site_stocking_allocation_share: float
+    allocated_new_site_stocking_orders_units: float
+    allocated_ss_site_stocking_units: float
     sublayer2_inventory_on_hand_end_units: float
     sublayer1_inventory_on_hand_end_units: float
     january_softening_applied: bool
@@ -173,6 +179,22 @@ class Phase3TradeRecord:
             ),
             "active_certified_sites": _format_numeric(self.active_certified_sites),
             "new_certified_sites": _format_numeric(self.new_certified_sites),
+            "raw_new_certified_sites": _format_numeric(self.raw_new_certified_sites),
+            "site_stocking_units_before_segment_allocation": _format_numeric(
+                self.site_stocking_units_before_segment_allocation
+            ),
+            "ss_site_stocking_units_before_segment_allocation": _format_numeric(
+                self.ss_site_stocking_units_before_segment_allocation
+            ),
+            "site_stocking_allocation_share": _format_numeric(
+                self.site_stocking_allocation_share
+            ),
+            "allocated_new_site_stocking_orders_units": _format_numeric(
+                self.allocated_new_site_stocking_orders_units
+            ),
+            "allocated_ss_site_stocking_units": _format_numeric(
+                self.allocated_ss_site_stocking_units
+            ),
             "sublayer2_inventory_on_hand_end_units": _format_numeric(
                 self.sublayer2_inventory_on_hand_end_units
             ),

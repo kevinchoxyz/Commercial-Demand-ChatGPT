@@ -442,6 +442,8 @@ def _allocate_group_month_to_segments(
     outputs: list[Phase3TradeRecord] = []
     for segment_code in segment_codes:
         share = allocation_weights[segment_code]
+        allocated_site_stocking_units = totals.new_site_stocking_orders_units * share
+        allocated_ss_site_stocking_units = totals.ss_site_stocking_units * share
         outputs.append(
             Phase3TradeRecord(
                 scenario_name=scenario_name,
@@ -455,8 +457,8 @@ def _allocate_group_month_to_segments(
                 sublayer2_inventory_target_units=totals.sublayer2_inventory_target_units * share,
                 sublayer2_inventory_adjustment_units=totals.sublayer2_inventory_adjustment_units
                 * share,
-                new_site_stocking_orders_units=totals.new_site_stocking_orders_units * share,
-                ss_site_stocking_units=totals.ss_site_stocking_units * share,
+                new_site_stocking_orders_units=allocated_site_stocking_units,
+                ss_site_stocking_units=allocated_ss_site_stocking_units,
                 sublayer2_pull_units=totals.sublayer2_pull_units * share,
                 sublayer1_inventory_target_units=totals.sublayer1_inventory_target_units * share,
                 sublayer1_inventory_adjustment_units=totals.sublayer1_inventory_adjustment_units
@@ -469,6 +471,12 @@ def _allocate_group_month_to_segments(
                 * share,
                 active_certified_sites=totals.active_certified_sites,
                 new_certified_sites=totals.new_certified_sites,
+                raw_new_certified_sites=totals.new_certified_sites,
+                site_stocking_units_before_segment_allocation=totals.new_site_stocking_orders_units,
+                ss_site_stocking_units_before_segment_allocation=totals.ss_site_stocking_units,
+                site_stocking_allocation_share=share,
+                allocated_new_site_stocking_orders_units=allocated_site_stocking_units,
+                allocated_ss_site_stocking_units=allocated_ss_site_stocking_units,
                 sublayer2_inventory_on_hand_end_units=totals.sublayer2_inventory_on_hand_end_units
                 * share,
                 sublayer1_inventory_on_hand_end_units=totals.sublayer1_inventory_on_hand_end_units

@@ -21,6 +21,8 @@ PHASE5_DETAIL_HEADERS = (
     "ending_inventory",
     "available_nonexpired_inventory",
     "demand_signal_units",
+    "required_administrable_demand_units",
+    "policy_excluded_channel_build_units",
     "shortfall_units",
     "months_of_cover",
     "stockout_flag",
