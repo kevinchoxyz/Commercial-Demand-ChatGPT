@@ -10,6 +10,8 @@ from cbx250_model.inputs.excel_import import WorkbookImportResult, WorkbookSubmi
 from cbx250_model.inputs.excel_template import build_commercial_forecast_template
 from cbx250_model.phase2.config_schema import load_phase2_config
 from cbx250_model.phase3.config_schema import load_phase3_config
+from cbx250_model.phase4.config_schema import load_phase4_config
+from cbx250_model.phase5.config_schema import load_phase5_config
 from cbx250_model.workflow import run_forecast_workflow
 
 from _phase1_acceptance_support import clear_cells, configure_template_for_mode, set_cell
@@ -166,6 +168,12 @@ def test_forecast_workflow_happy_path_uses_assumptions_workbook_as_phase2_source
     assert result.summary["assumptions_artifacts"]["generated_phase2_parameters"].endswith(
         "generated_phase2_parameters.toml"
     )
+    assert result.summary["assumptions_artifacts"]["generated_phase4_parameters"].endswith(
+        "generated_phase4_parameters.toml"
+    )
+    assert result.summary["assumptions_artifacts"]["generated_phase5_parameters"].endswith(
+        "generated_phase5_parameters.toml"
+    )
     assert result.summary["assumptions_artifacts"]["treatment_duration_assumptions"].endswith(
         "treatment_duration_assumptions.csv"
     )
@@ -263,6 +271,146 @@ def test_forecast_workflow_assumptions_workbook_wins_over_phase3_scenario_with_w
     assert result.assumptions_result is not None
     assert result.phase3_template_path == result.assumptions_result.file_paths["generated_phase3_scenario"]
     assert any("phase3_scenario" in warning and "ignored" in warning for warning in result.summary["workflow_warnings"])
+
+
+def test_forecast_workflow_happy_path_runs_phase4_from_assumptions_workbook(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "workflow_source.xlsx"
+    assumptions_workbook_path = tmp_path / "assumptions.xlsx"
+    build_commercial_forecast_template(workbook_path)
+    build_model_assumptions_template(assumptions_workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain="module_level",
+        forecast_frequency="monthly",
+        demand_basis="treated_census",
+    )
+    set_cell(assumptions_workbook_path, "Scenario_Controls", "F2", "treated_census")
+    set_cell(assumptions_workbook_path, "Trade_Inventory_FutureHooks", "AG2", 75000.0)
+
+    result = run_forecast_workflow(
+        workbook_path=workbook_path,
+        assumptions_workbook=assumptions_workbook_path,
+        scenario_name="ASSUMPTIONS_PHASE4_2029",
+        output_dir=tmp_path / "workflow_output",
+        run_phase4=True,
+    )
+    phase4_config = load_phase4_config(result.generated_phase4_scenario_path)
+
+    assert result.phase3_result is not None
+    assert result.phase4_result is not None
+    assert result.phase4_schedule_detail_path is not None and result.phase4_schedule_detail_path.exists()
+    assert result.phase4_monthly_summary_path is not None and result.phase4_monthly_summary_path.exists()
+    assert result.summary["phase3_ran"] is True
+    assert result.summary["phase4_ran"] is True
+    assert result.summary["phase4_parameter_source"] == "assumptions_workbook"
+    assert result.summary["phase4_parameter_config_used"] == str(
+        result.assumptions_result.file_paths["generated_phase4_parameters"]
+    )
+    assert phase4_config.parameter_config_path == result.assumptions_result.file_paths["generated_phase4_parameters"]
+    assert phase4_config.fg.packaging_campaign_size_units == 75000.0
+
+
+def test_forecast_workflow_happy_path_runs_phase5_from_assumptions_workbook(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "workflow_source.xlsx"
+    assumptions_workbook_path = tmp_path / "assumptions.xlsx"
+    build_commercial_forecast_template(workbook_path)
+    build_model_assumptions_template(assumptions_workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain="module_level",
+        forecast_frequency="monthly",
+        demand_basis="treated_census",
+    )
+    set_cell(assumptions_workbook_path, "Scenario_Controls", "F2", "treated_census")
+    set_cell(assumptions_workbook_path, "Trade_Inventory_FutureHooks", "BE2", 25.0)
+
+    result = run_forecast_workflow(
+        workbook_path=workbook_path,
+        assumptions_workbook=assumptions_workbook_path,
+        scenario_name="ASSUMPTIONS_PHASE5_2029",
+        output_dir=tmp_path / "workflow_output",
+        run_phase5=True,
+    )
+    phase5_config = load_phase5_config(result.generated_phase5_scenario_path)
+
+    assert result.phase3_result is not None
+    assert result.phase4_result is not None
+    assert result.phase5_result is not None
+    assert result.phase5_inventory_detail_path is not None and result.phase5_inventory_detail_path.exists()
+    assert result.phase5_monthly_summary_path is not None and result.phase5_monthly_summary_path.exists()
+    assert result.phase5_cohort_audit_path is not None and result.phase5_cohort_audit_path.exists()
+    assert result.summary["phase3_ran"] is True
+    assert result.summary["phase4_ran"] is True
+    assert result.summary["phase5_ran"] is True
+    assert result.summary["phase5_parameter_source"] == "assumptions_workbook"
+    assert result.summary["phase5_parameter_config_used"] == str(
+        result.assumptions_result.file_paths["generated_phase5_parameters"]
+    )
+    assert phase5_config.parameter_config_path == result.assumptions_result.file_paths["generated_phase5_parameters"]
+    assert phase5_config.starting_inventory.fg_units == 25.0
+
+
+def test_forecast_workflow_assumptions_workbook_wins_over_phase4_and_phase5_scenarios_with_warning(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "workflow_source.xlsx"
+    assumptions_workbook_path = tmp_path / "assumptions.xlsx"
+    build_commercial_forecast_template(workbook_path)
+    build_model_assumptions_template(assumptions_workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain="module_level",
+        forecast_frequency="monthly",
+        demand_basis="treated_census",
+    )
+    set_cell(assumptions_workbook_path, "Scenario_Controls", "F2", "treated_census")
+
+    result = run_forecast_workflow(
+        workbook_path=workbook_path,
+        assumptions_workbook=assumptions_workbook_path,
+        phase4_scenario=Path("config/scenarios/base_phase4.toml"),
+        phase5_scenario=Path("config/scenarios/base_phase5.toml"),
+        scenario_name="ASSUMPTIONS_PHASE45_WIN_2029",
+        output_dir=tmp_path / "workflow_output",
+        run_phase5=True,
+    )
+
+    assert result.assumptions_result is not None
+    assert result.phase4_template_path == result.assumptions_result.file_paths["generated_phase4_scenario"]
+    assert result.phase5_template_path == result.assumptions_result.file_paths["generated_phase5_scenario"]
+    assert any("phase4_scenario" in warning and "ignored" in warning for warning in result.summary["workflow_warnings"])
+    assert any("phase5_scenario" in warning and "ignored" in warning for warning in result.summary["workflow_warnings"])
+
+
+def test_forecast_workflow_happy_path_runs_phase5_with_default_configs_without_assumptions_workbook(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "workflow_source.xlsx"
+    build_commercial_forecast_template(workbook_path)
+    configure_template_for_mode(
+        workbook_path,
+        forecast_grain="module_level",
+        forecast_frequency="monthly",
+        demand_basis="treated_census",
+    )
+
+    result = run_forecast_workflow(
+        workbook_path=workbook_path,
+        scenario_name="DEFAULT_PHASE5_2029",
+        output_dir=tmp_path / "workflow_output",
+        run_phase5=True,
+    )
+
+    assert result.assumptions_result is None
+    assert result.summary["phase3_ran"] is True
+    assert result.summary["phase4_ran"] is True
+    assert result.summary["phase5_ran"] is True
+    assert result.summary["phase4_parameter_source"] == "phase4_scenario_template"
+    assert result.summary["phase5_parameter_source"] == "phase5_scenario_template"
 
 
 def test_forecast_workflow_generated_phase2_scenario_uses_assumptions_generated_parameter_config(

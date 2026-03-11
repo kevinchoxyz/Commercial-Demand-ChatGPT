@@ -84,8 +84,8 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
     ]
     assert _row_values(output_path, sheet_map["Instructions"], 7) == [
         "Current engine wiring",
-        "The importer generates machine-readable CSV artifacts plus generated_phase2_parameters.toml / generated_phase2_scenario.toml and generated_phase3_parameters.toml / generated_phase3_scenario.toml.",
-        "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode; dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2; and active deterministic trade parameters from Trade_Inventory_FutureHooks for Phase 3.",
+        "The importer generates machine-readable CSV artifacts plus generated_phase2_parameters.toml / generated_phase2_scenario.toml, generated_phase3_parameters.toml / generated_phase3_scenario.toml, generated_phase4_parameters.toml / generated_phase4_scenario.toml, and generated_phase5_parameters.toml / generated_phase5_scenario.toml.",
+        "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode; dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2; active deterministic trade parameters from Trade_Inventory_FutureHooks for Phase 3; and active deterministic Phase 4 scheduling plus Phase 5 inventory controls from Trade_Inventory_FutureHooks together with the scenario-default Product_Parameters, Yield_Assumptions, and SS_Assumptions rows.",
     ]
     assert _row_values(output_path, sheet_map["Scenario_Controls"], 2) == [
         "BASE_2029",
@@ -207,7 +207,8 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
         "no",
         "PLACEHOLDER populate approved US prevalent pool inputs before activating.",
     ]
-    assert _row_values(output_path, sheet_map["Trade_Inventory_FutureHooks"], 1) == [
+    trade_headers = _row_values(output_path, sheet_map["Trade_Inventory_FutureHooks"], 1)
+    assert trade_headers[:21] == [
         "scenario_name",
         "trade_row_type",
         "module",
@@ -229,10 +230,16 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
         "certified_sites_at_launch",
         "certified_sites_at_peak",
         "launch_month_index",
-        "active_flag",
-        "notes",
     ]
-    assert _row_values(output_path, sheet_map["Trade_Inventory_FutureHooks"], 2)[1:] == [
+    assert "bullwhip_amplification_threshold" in trade_headers
+    assert "ss_release_must_coincide_with_or_precede_fg" in trade_headers
+    assert "starting_inventory_fg_units" in trade_headers
+    assert "shelf_life_fg_months" in trade_headers
+    assert "phase5_reconciliation_tolerance_units" in trade_headers
+    assert trade_headers[-2:] == ["active_flag", "notes"]
+
+    trade_row = _row_values(output_path, sheet_map["Trade_Inventory_FutureHooks"], 2)
+    assert trade_row[1:17] == [
         "scenario_default",
         "ALL",
         "ALL",
@@ -249,13 +256,16 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
         "4",
         "8",
         "4.33",
-        "",
-        "",
-        "",
-        "",
-        "yes",
-        "Approved deterministic Phase 3 scenario defaults. Edit here instead of phase3_trade_layer.toml.",
     ]
+    assert "1.25" in trade_row
+    assert "50000" in trade_row
+    assert "500000" in trade_row
+    assert "100000" in trade_row
+    assert "24" in trade_row
+    assert trade_row[-2] == "yes"
+    assert trade_row[-1] == (
+        "Active deterministic defaults for Phase 3, Phase 4, and Phase 5. Edit here instead of hand-editing phase3_trade_layer.toml, phase4_production_schedule.toml, or phase5_inventory_layer.toml."
+    )
     assert _cell_formula(output_path, sheet_map["Dosing_Assumptions"], "A2") == (
         'IF(Scenario_Controls!$A$2="","",Scenario_Controls!$A$2)'
     )

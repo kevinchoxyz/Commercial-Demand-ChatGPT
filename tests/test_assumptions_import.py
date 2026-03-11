@@ -12,6 +12,8 @@ from cbx250_model.inputs.assumptions_import import import_model_assumptions_work
 from cbx250_model.inputs.assumptions_template import build_model_assumptions_template
 from cbx250_model.phase2.config_schema import load_phase2_config
 from cbx250_model.phase3.config_schema import load_phase3_config
+from cbx250_model.phase4.config_schema import load_phase4_config
+from cbx250_model.phase5.config_schema import load_phase5_config
 
 MAIN_NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 MAIN_NS_URI = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -110,6 +112,10 @@ def test_import_model_assumptions_workbook_happy_path_generates_artifacts_and_ph
     assert result.file_paths["generated_phase2_scenario"].exists()
     assert result.file_paths["generated_phase3_parameters"].exists()
     assert result.file_paths["generated_phase3_scenario"].exists()
+    assert result.file_paths["generated_phase4_parameters"].exists()
+    assert result.file_paths["generated_phase4_scenario"].exists()
+    assert result.file_paths["generated_phase5_parameters"].exists()
+    assert result.file_paths["generated_phase5_scenario"].exists()
     assert result.file_paths["treatment_duration_assumptions"].exists()
 
     config = load_phase2_config(result.file_paths["generated_phase2_scenario"])
@@ -125,12 +131,24 @@ def test_import_model_assumptions_workbook_happy_path_generates_artifacts_and_ph
     assert phase3_config.trade.initial_stocking_units_per_new_site == 6.0
     assert phase3_config.get_geography_defaults("US").site_activation_rate == 5.0
     assert phase3_config.get_launch_event("AML", "US").launch_month_index == 1
+    phase4_config = load_phase4_config(result.file_paths["generated_phase4_scenario"])
+    assert phase4_config.conversion.dp_to_fg_yield == 0.98
+    assert phase4_config.review.bullwhip_amplification_threshold == 1.25
+    assert phase4_config.fg.packaging_campaign_size_units == 50000.0
+    assert phase4_config.ds.max_batch_size_kg == 4.0
+    phase5_config = load_phase5_config(result.file_paths["generated_phase5_scenario"])
+    assert phase5_config.starting_inventory.fg_units == 0.0
+    assert phase5_config.shelf_life.fg_months == 24
+    assert phase5_config.policy.fefo_enabled is True
+    assert phase5_config.validation.reconcile_phase4_receipts is True
 
     summary = json.loads(result.file_paths["import_summary"].read_text(encoding="utf-8"))
     assert "Scenario_Controls.demand_basis and Treatment_Duration_Assumptions -> Phase 1 starts-based treated census build when demand_basis=patient_starts." in summary["wired_into_current_engine"]
     assert "Product_Parameters scenario_default + module_override -> fg_mg_per_unit resolution" in summary["wired_into_current_engine"]
     assert "Trade_Inventory_FutureHooks scenario_default / geography_default / launch_event rows -> active deterministic Phase 3 config generation" in summary["wired_into_current_engine"]
-    assert "Broader future-phase inventory logic remains deferred even though Trade_Inventory_FutureHooks now feeds the active deterministic Phase 3 trade config." in summary["future_ready_only"]
+    assert "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 4 config generation" in summary["wired_into_current_engine"]
+    assert "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 5 config generation" in summary["wired_into_current_engine"]
+    assert "Broader future-phase execution, financial, and Monte Carlo logic remains deferred even though the assumptions workbook now feeds the active deterministic Phase 3, Phase 4, and Phase 5 configs." in summary["future_ready_only"]
 
 
 def test_import_model_assumptions_workbook_missing_required_field_fails_with_context(
@@ -271,7 +289,19 @@ def test_import_model_assumptions_workbook_missing_required_active_phase3_trade_
     workbook_path = tmp_path / "CBX250_Model_Assumptions_Template.xlsx"
 
     build_model_assumptions_template(workbook_path)
-    _set_cell(workbook_path, "Trade_Inventory_FutureHooks", "V2", "no")
+    _set_cell(workbook_path, "Trade_Inventory_FutureHooks", "BU2", "no")
 
     with pytest.raises(ValueError, match="Trade_Inventory_FutureHooks is missing a required active row"):
+        import_model_assumptions_workbook(workbook_path)
+
+
+def test_import_model_assumptions_workbook_missing_required_active_phase4_phase5_trade_value_fails(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Model_Assumptions_Template.xlsx"
+
+    build_model_assumptions_template(workbook_path)
+    _set_cell(workbook_path, "Trade_Inventory_FutureHooks", "V2", "")
+
+    with pytest.raises(ValueError, match="bullwhip_amplification_threshold"):
         import_model_assumptions_workbook(workbook_path)

@@ -51,7 +51,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `python scripts/run_phase4.py --scenario config/scenarios/base_phase4.toml`
 - `python scripts/run_phase5.py --scenario config/scenarios/base_phase5.toml`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029" --overwrite`
-- `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase3 --overwrite`
+- `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase5 --overwrite`
 
 ## Forecast Templates
 - `templates/CBX250_Commercial_Forecast_Template.xlsx`
@@ -104,9 +104,18 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `cml_prevalent_assumptions.csv`
   - `trade_inventory_futurehooks.csv`
   - `resolved_phase2_config_snapshot.json`
+  - `resolved_phase3_config_snapshot.json`
+  - `resolved_phase4_config_snapshot.json`
+  - `resolved_phase5_config_snapshot.json`
   - `assumptions_import_summary.json`
   - `generated_phase2_parameters.toml`
   - `generated_phase2_scenario.toml`
+  - `generated_phase3_parameters.toml`
+  - `generated_phase3_scenario.toml`
+  - `generated_phase4_parameters.toml`
+  - `generated_phase4_scenario.toml`
+  - `generated_phase5_parameters.toml`
+  - `generated_phase5_scenario.toml`
 - Current wiring into the active Phase 2 engine:
   - `Scenario_Controls.dose_basis_default -> model.dose_basis`
   - `Dosing_Assumptions` module rows -> `module_settings.<module>` fixed dose, weight-based dose, average weight, and doses-per-patient-per-month
@@ -126,7 +135,8 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `dp_concentration_mg_per_ml`
   - `dp_fill_volume_ml`
 - Current Phase 3 note:
-  - `Trade_Inventory_FutureHooks` is now the business-facing entry point for the active deterministic Phase 3 trade config. Broader future-phase inventory behavior remains deferred.
+  - `Trade_Inventory_FutureHooks` remains the business-facing bridge sheet for active deterministic Phase 3 trade, Phase 4 production scheduling, and Phase 5 inventory parameters.
+  - Product and yield scenario-default rows continue to feed shared conversion assumptions used by Phases 2, 4, and 5.
 
 ## One-Command Workflow
 - Run the end-to-end import plus deterministic cascade from the repo root with:
@@ -138,13 +148,21 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline"`
 - To run the same workflow through deterministic Phase 3 as well, run:
   - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase3 --overwrite`
+- To run the same workflow through deterministic Phase 4 as well, run:
+  - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase4 --overwrite`
+- To run the same workflow through deterministic Phase 5 as well, run:
+  - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase5 --overwrite`
 - If `--scenario-name` is omitted, the wrapper derives a safe default from the workbook filename.
 - Optional arguments:
   - `--phase2-scenario config/scenarios/base_phase2.toml`
   - `--phase3-scenario config/scenarios/base_phase3.toml`
+  - `--phase4-scenario config/scenarios/base_phase4.toml`
+  - `--phase5-scenario config/scenarios/base_phase5.toml`
   - `--assumptions-workbook data/raw/CBX250_Model_Assumptions_Baseline.xlsx`
   - `--output-dir data/curated/real_2029`
   - `--run-phase3`
+  - `--run-phase4`
+  - `--run-phase5`
   - `--overwrite`
 - The wrapper does not duplicate business logic. It:
   - optionally imports the assumptions workbook into normalized artifacts under `<output_dir>/assumptions`
@@ -155,20 +173,33 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - writes the final deterministic cascade CSV
   - optionally creates a generated Phase 3 scenario pointing to the workflow Phase 2 output
   - optionally runs the existing deterministic Phase 3 trade layer
-  - optionally writes the final deterministic trade-layer CSV
+  - optionally creates a generated Phase 4 scenario pointing to the workflow Phase 3 output
+  - optionally runs the existing deterministic Phase 4 production scheduler
+  - optionally creates a generated Phase 5 scenario pointing to the workflow Phase 3 and Phase 4 outputs
+  - optionally runs the existing deterministic Phase 5 inventory layer
 - Precedence:
   - if `--assumptions-workbook` is provided, its generated Phase 2 scenario/config becomes the active Phase 2 parameter source
   - if `--assumptions-workbook` is provided and `--run-phase3` is enabled, its generated Phase 3 scenario/config becomes the active Phase 3 parameter source
+  - if `--assumptions-workbook` is provided and `--run-phase4` is enabled, its generated Phase 4 scenario/config becomes the active Phase 4 parameter source
+  - if `--assumptions-workbook` is provided and `--run-phase5` is enabled, its generated Phase 5 scenario/config becomes the active Phase 5 parameter source
   - if both `--assumptions-workbook` and `--phase2-scenario` are provided, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase2-scenario` was ignored
   - if both `--assumptions-workbook` and `--phase3-scenario` are provided with `--run-phase3`, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase3-scenario` was ignored
+  - if both `--assumptions-workbook` and `--phase4-scenario` are provided with `--run-phase4` or `--run-phase5`, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase4-scenario` was ignored
+  - if both `--assumptions-workbook` and `--phase5-scenario` are provided with `--run-phase5`, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase5-scenario` was ignored
   - if `--run-phase3` is enabled without `--assumptions-workbook`, the workflow uses `--phase3-scenario` if supplied, otherwise it falls back to `config/scenarios/base_phase3.toml`
+  - if `--run-phase4` is enabled, Phase 3 runs automatically and the workflow uses `--phase4-scenario` if supplied, otherwise it falls back to `config/scenarios/base_phase4.toml`
+  - if `--run-phase5` is enabled, Phases 3 and 4 run automatically and the workflow uses `--phase5-scenario` if supplied, otherwise it falls back to `config/scenarios/base_phase5.toml`
 - Expected outputs from the wrapper are written to the selected output directory:
   - `monthlyized_output.csv`
   - `phase2_deterministic_cascade.csv`
   - `generated_phase2_scenario.toml`
   - `phase3_trade_layer.csv` when `--run-phase3` is enabled
   - `generated_phase3_scenario.toml` when `--run-phase3` is enabled
-  - `assumptions/` normalized artifacts and generated Phase 2 / Phase 3 config files when `--assumptions-workbook` is provided
+  - `phase4_schedule_detail.csv` and `phase4_monthly_summary.csv` when `--run-phase4` or `--run-phase5` is enabled
+  - `generated_phase4_scenario.toml` when `--run-phase4` or `--run-phase5` is enabled
+  - `phase5_inventory_detail.csv`, `phase5_monthly_summary.csv`, and `phase5_inventory_cohort_audit.csv` when `--run-phase5` is enabled
+  - `generated_phase5_scenario.toml` when `--run-phase5` is enabled
+  - `assumptions/` normalized artifacts and generated Phase 2 / Phase 3 / Phase 4 / Phase 5 config files when `--assumptions-workbook` is provided
   - the standard normalized Phase 1 CSV package and `workbook_import_summary.json`
 - The terminal summary reports:
   - `scenario_name`
@@ -183,6 +214,13 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `total_sublayer2_pull_units` when Phase 3 runs
   - `total_ex_factory_fg_demand_units` when Phase 3 runs
   - `bullwhip_flag_row_count` when Phase 3 runs
+  - `total_fg_release_units` when Phase 4 runs
+  - `total_ds_release_quantity_kg` when Phase 4 runs
+  - `total_ss_release_units` when Phase 4 runs
+  - `ending_fg_inventory_units` when Phase 5 runs
+  - `ending_ss_inventory_units` when Phase 5 runs
+  - `phase5_stockout_row_count` when Phase 5 runs
+  - `phase5_expiry_row_count` when Phase 5 runs
   - authoritative output file paths for each phase that ran
   - `total_dp_units_required`
   - `total_ds_required` (backward-compatible mg total)

@@ -16,6 +16,12 @@ from ..constants import (
     PHASE1_MODULES,
     PHASE2_BUILD_SCOPE,
     PHASE2_UPSTREAM_DEMAND_CONTRACT,
+    PHASE4_BUILD_SCOPE,
+    PHASE4_DISABLED_CAPABILITIES,
+    PHASE4_UPSTREAM_DEMAND_CONTRACT,
+    PHASE5_BUILD_SCOPE,
+    PHASE5_DISABLED_CAPABILITIES,
+    PHASE5_UPSTREAM_SUPPLY_CONTRACT,
     PHASE3_BUILD_SCOPE,
     PHASE3_DISABLED_CAPABILITIES,
     PHASE3_UPSTREAM_DEMAND_CONTRACT,
@@ -162,6 +168,57 @@ TRADE_HEADERS = (
     "certified_sites_at_launch",
     "certified_sites_at_peak",
     "launch_month_index",
+    "bullwhip_amplification_threshold",
+    "bullwhip_review_window_months",
+    "excess_build_threshold_ratio",
+    "supply_gap_tolerance_units",
+    "capacity_clip_tolerance_units",
+    "cml_prevalent_forward_window_months",
+    "projected_cml_prevalent_bolus_exhaustion_month_index",
+    "fg_lead_time_from_dp_release_weeks",
+    "fg_packaging_cycle_weeks",
+    "fg_release_qa_weeks",
+    "fg_total_order_to_release_weeks",
+    "fg_packaging_campaign_size_units",
+    "dp_lead_time_from_ds_release_weeks",
+    "dp_manufacturing_cycle_weeks",
+    "dp_release_testing_weeks",
+    "dp_total_order_to_release_weeks",
+    "dp_min_batch_size_units",
+    "dp_max_batch_size_units",
+    "dp_min_campaign_batches",
+    "dp_annual_capacity_batches",
+    "ds_lead_time_to_batch_start_planning_horizon_weeks",
+    "ds_manufacturing_cycle_weeks",
+    "ds_release_testing_weeks",
+    "ds_total_order_to_release_weeks",
+    "ds_min_batch_size_kg",
+    "ds_max_batch_size_kg",
+    "ds_min_campaign_batches",
+    "ds_annual_capacity_batches",
+    "ss_order_to_release_lead_time_weeks",
+    "ss_batch_size_units",
+    "ss_min_campaign_batches",
+    "ss_annual_capacity_batches",
+    "ss_release_must_coincide_with_or_precede_fg",
+    "starting_inventory_ds_mg",
+    "starting_inventory_dp_units",
+    "starting_inventory_fg_units",
+    "starting_inventory_ss_units",
+    "starting_inventory_sublayer1_fg_units",
+    "starting_inventory_sublayer2_fg_units",
+    "shelf_life_ds_months",
+    "shelf_life_dp_months",
+    "shelf_life_fg_months",
+    "shelf_life_ss_months",
+    "excess_inventory_threshold_months_of_cover",
+    "stockout_tolerance_units",
+    "fefo_enabled",
+    "ss_fg_match_required",
+    "allow_prelaunch_inventory_build",
+    "phase5_enforce_unique_output_keys",
+    "phase5_reconcile_phase4_receipts",
+    "phase5_reconciliation_tolerance_units",
     "active_flag",
     "notes",
 )
@@ -266,6 +323,18 @@ def import_model_assumptions_workbook(
     resolved_phase3 = _resolve_phase3_config(
         trade_rows=trade_rows,
     )
+    resolved_phase4 = _resolve_phase4_config(
+        product_rows=product_rows,
+        yield_rows=yield_rows,
+        ss_rows=ss_rows,
+        trade_rows=trade_rows,
+    )
+    resolved_phase5 = _resolve_phase5_config(
+        product_rows=product_rows,
+        yield_rows=yield_rows,
+        ss_rows=ss_rows,
+        trade_rows=trade_rows,
+    )
 
     resolved_output_dir = _resolve_output_dir(
         workbook_path=workbook_path,
@@ -287,6 +356,8 @@ def import_model_assumptions_workbook(
         trade_rows=trade_rows,
         resolved_phase2=resolved_phase2,
         resolved_phase3=resolved_phase3,
+        resolved_phase4=resolved_phase4,
+        resolved_phase5=resolved_phase5,
         workbook_path=workbook_path.resolve(),
         warnings=warnings,
     )
@@ -1045,6 +1116,57 @@ def _normalize_trade_future_hooks(
             "certified_sites_at_launch": "",
             "certified_sites_at_peak": "",
             "launch_month_index": "",
+            "bullwhip_amplification_threshold": "",
+            "bullwhip_review_window_months": "",
+            "excess_build_threshold_ratio": "",
+            "supply_gap_tolerance_units": "",
+            "capacity_clip_tolerance_units": "",
+            "cml_prevalent_forward_window_months": "",
+            "projected_cml_prevalent_bolus_exhaustion_month_index": "",
+            "fg_lead_time_from_dp_release_weeks": "",
+            "fg_packaging_cycle_weeks": "",
+            "fg_release_qa_weeks": "",
+            "fg_total_order_to_release_weeks": "",
+            "fg_packaging_campaign_size_units": "",
+            "dp_lead_time_from_ds_release_weeks": "",
+            "dp_manufacturing_cycle_weeks": "",
+            "dp_release_testing_weeks": "",
+            "dp_total_order_to_release_weeks": "",
+            "dp_min_batch_size_units": "",
+            "dp_max_batch_size_units": "",
+            "dp_min_campaign_batches": "",
+            "dp_annual_capacity_batches": "",
+            "ds_lead_time_to_batch_start_planning_horizon_weeks": "",
+            "ds_manufacturing_cycle_weeks": "",
+            "ds_release_testing_weeks": "",
+            "ds_total_order_to_release_weeks": "",
+            "ds_min_batch_size_kg": "",
+            "ds_max_batch_size_kg": "",
+            "ds_min_campaign_batches": "",
+            "ds_annual_capacity_batches": "",
+            "ss_order_to_release_lead_time_weeks": "",
+            "ss_batch_size_units": "",
+            "ss_min_campaign_batches": "",
+            "ss_annual_capacity_batches": "",
+            "ss_release_must_coincide_with_or_precede_fg": "",
+            "starting_inventory_ds_mg": "",
+            "starting_inventory_dp_units": "",
+            "starting_inventory_fg_units": "",
+            "starting_inventory_ss_units": "",
+            "starting_inventory_sublayer1_fg_units": "",
+            "starting_inventory_sublayer2_fg_units": "",
+            "shelf_life_ds_months": "",
+            "shelf_life_dp_months": "",
+            "shelf_life_fg_months": "",
+            "shelf_life_ss_months": "",
+            "excess_inventory_threshold_months_of_cover": "",
+            "stockout_tolerance_units": "",
+            "fefo_enabled": "",
+            "ss_fg_match_required": "",
+            "allow_prelaunch_inventory_build": "",
+            "phase5_enforce_unique_output_keys": "",
+            "phase5_reconcile_phase4_receipts": "",
+            "phase5_reconciliation_tolerance_units": "",
         }
 
         if trade_row_type == "scenario_default":
@@ -1154,6 +1276,414 @@ def _normalize_trade_future_hooks(
                         _parse_positive_float(
                             row.get("weeks_per_month", ""),
                             "weeks_per_month",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "bullwhip_amplification_threshold": _format_numeric(
+                        _parse_positive_float(
+                            row.get("bullwhip_amplification_threshold", ""),
+                            "bullwhip_amplification_threshold",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "bullwhip_review_window_months": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("bullwhip_review_window_months", ""),
+                            "bullwhip_review_window_months",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "excess_build_threshold_ratio": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("excess_build_threshold_ratio", ""),
+                            "excess_build_threshold_ratio",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "supply_gap_tolerance_units": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("supply_gap_tolerance_units", ""),
+                            "supply_gap_tolerance_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "capacity_clip_tolerance_units": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("capacity_clip_tolerance_units", ""),
+                            "capacity_clip_tolerance_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "cml_prevalent_forward_window_months": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("cml_prevalent_forward_window_months", ""),
+                            "cml_prevalent_forward_window_months",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "projected_cml_prevalent_bolus_exhaustion_month_index": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("projected_cml_prevalent_bolus_exhaustion_month_index", ""),
+                            "projected_cml_prevalent_bolus_exhaustion_month_index",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "fg_lead_time_from_dp_release_weeks": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("fg_lead_time_from_dp_release_weeks", ""),
+                            "fg_lead_time_from_dp_release_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "fg_packaging_cycle_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("fg_packaging_cycle_weeks", ""),
+                            "fg_packaging_cycle_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "fg_release_qa_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("fg_release_qa_weeks", ""),
+                            "fg_release_qa_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "fg_total_order_to_release_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("fg_total_order_to_release_weeks", ""),
+                            "fg_total_order_to_release_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "fg_packaging_campaign_size_units": _format_numeric(
+                        _parse_positive_float(
+                            row.get("fg_packaging_campaign_size_units", ""),
+                            "fg_packaging_campaign_size_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "dp_lead_time_from_ds_release_weeks": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("dp_lead_time_from_ds_release_weeks", ""),
+                            "dp_lead_time_from_ds_release_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "dp_manufacturing_cycle_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("dp_manufacturing_cycle_weeks", ""),
+                            "dp_manufacturing_cycle_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "dp_release_testing_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("dp_release_testing_weeks", ""),
+                            "dp_release_testing_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "dp_total_order_to_release_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("dp_total_order_to_release_weeks", ""),
+                            "dp_total_order_to_release_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "dp_min_batch_size_units": _format_numeric(
+                        _parse_positive_float(
+                            row.get("dp_min_batch_size_units", ""),
+                            "dp_min_batch_size_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "dp_max_batch_size_units": _format_numeric(
+                        _parse_positive_float(
+                            row.get("dp_max_batch_size_units", ""),
+                            "dp_max_batch_size_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "dp_min_campaign_batches": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("dp_min_campaign_batches", ""),
+                            "dp_min_campaign_batches",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "dp_annual_capacity_batches": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("dp_annual_capacity_batches", ""),
+                            "dp_annual_capacity_batches",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ds_lead_time_to_batch_start_planning_horizon_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ds_lead_time_to_batch_start_planning_horizon_weeks", ""),
+                            "ds_lead_time_to_batch_start_planning_horizon_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ds_manufacturing_cycle_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ds_manufacturing_cycle_weeks", ""),
+                            "ds_manufacturing_cycle_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ds_release_testing_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ds_release_testing_weeks", ""),
+                            "ds_release_testing_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ds_total_order_to_release_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ds_total_order_to_release_weeks", ""),
+                            "ds_total_order_to_release_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ds_min_batch_size_kg": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ds_min_batch_size_kg", ""),
+                            "ds_min_batch_size_kg",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ds_max_batch_size_kg": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ds_max_batch_size_kg", ""),
+                            "ds_max_batch_size_kg",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ds_min_campaign_batches": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("ds_min_campaign_batches", ""),
+                            "ds_min_campaign_batches",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ds_annual_capacity_batches": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("ds_annual_capacity_batches", ""),
+                            "ds_annual_capacity_batches",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ss_order_to_release_lead_time_weeks": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ss_order_to_release_lead_time_weeks", ""),
+                            "ss_order_to_release_lead_time_weeks",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ss_batch_size_units": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ss_batch_size_units", ""),
+                            "ss_batch_size_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ss_min_campaign_batches": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("ss_min_campaign_batches", ""),
+                            "ss_min_campaign_batches",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ss_annual_capacity_batches": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("ss_annual_capacity_batches", ""),
+                            "ss_annual_capacity_batches",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ss_release_must_coincide_with_or_precede_fg": _format_boolish(
+                        _parse_boolish(
+                            row.get("ss_release_must_coincide_with_or_precede_fg", ""),
+                            "ss_release_must_coincide_with_or_precede_fg",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "starting_inventory_ds_mg": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("starting_inventory_ds_mg", ""),
+                            "starting_inventory_ds_mg",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "starting_inventory_dp_units": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("starting_inventory_dp_units", ""),
+                            "starting_inventory_dp_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "starting_inventory_fg_units": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("starting_inventory_fg_units", ""),
+                            "starting_inventory_fg_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "starting_inventory_ss_units": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("starting_inventory_ss_units", ""),
+                            "starting_inventory_ss_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "starting_inventory_sublayer1_fg_units": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("starting_inventory_sublayer1_fg_units", ""),
+                            "starting_inventory_sublayer1_fg_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "starting_inventory_sublayer2_fg_units": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("starting_inventory_sublayer2_fg_units", ""),
+                            "starting_inventory_sublayer2_fg_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "shelf_life_ds_months": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("shelf_life_ds_months", ""),
+                            "shelf_life_ds_months",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "shelf_life_dp_months": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("shelf_life_dp_months", ""),
+                            "shelf_life_dp_months",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "shelf_life_fg_months": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("shelf_life_fg_months", ""),
+                            "shelf_life_fg_months",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "shelf_life_ss_months": _format_optional_int(
+                        _parse_positive_int(
+                            row.get("shelf_life_ss_months", ""),
+                            "shelf_life_ss_months",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "excess_inventory_threshold_months_of_cover": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("excess_inventory_threshold_months_of_cover", ""),
+                            "excess_inventory_threshold_months_of_cover",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "stockout_tolerance_units": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("stockout_tolerance_units", ""),
+                            "stockout_tolerance_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "fefo_enabled": _format_boolish(
+                        _parse_boolish(
+                            row.get("fefo_enabled", ""),
+                            "fefo_enabled",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ss_fg_match_required": _format_boolish(
+                        _parse_boolish(
+                            row.get("ss_fg_match_required", ""),
+                            "ss_fg_match_required",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "allow_prelaunch_inventory_build": _format_boolish(
+                        _parse_boolish(
+                            row.get("allow_prelaunch_inventory_build", ""),
+                            "allow_prelaunch_inventory_build",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "phase5_enforce_unique_output_keys": _format_boolish(
+                        _parse_boolish(
+                            row.get("phase5_enforce_unique_output_keys", ""),
+                            "phase5_enforce_unique_output_keys",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "phase5_reconcile_phase4_receipts": _format_boolish(
+                        _parse_boolish(
+                            row.get("phase5_reconcile_phase4_receipts", ""),
+                            "phase5_reconcile_phase4_receipts",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "phase5_reconciliation_tolerance_units": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("phase5_reconciliation_tolerance_units", ""),
+                            "phase5_reconciliation_tolerance_units",
                             "Trade_Inventory_FutureHooks",
                             index,
                         )
@@ -1519,6 +2049,249 @@ def _resolve_phase3_config(
     }
 
 
+def _resolve_phase4_config(
+    *,
+    product_rows: list[dict[str, str]],
+    yield_rows: list[dict[str, str]],
+    ss_rows: list[dict[str, str]],
+    trade_rows: list[dict[str, str]],
+) -> dict[str, object]:
+    active_product_rows = _active_rows(product_rows)
+    active_yield_rows = _active_rows(yield_rows)
+    active_ss_rows = _active_rows(ss_rows)
+    active_trade_rows = _active_rows(trade_rows)
+
+    product_default_row = _find_active_row(
+        active_product_rows,
+        sheet_name="Product_Parameters",
+        required_fields={"parameter_scope": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide an active scenario_default product row with module = ALL and geography_code = ALL.",
+    )
+    yield_default_row = _find_active_row(
+        active_yield_rows,
+        sheet_name="Yield_Assumptions",
+        required_fields={"parameter_scope": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide one active scenario_default yield row with module = ALL and geography_code = ALL.",
+    )
+    ss_default_row = _resolve_ss_default_row(active_ss_rows)
+    scenario_default_trade_row = _find_active_row(
+        active_trade_rows,
+        sheet_name="Trade_Inventory_FutureHooks",
+        required_fields={"trade_row_type": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide one active scenario_default row with module = ALL and geography_code = ALL.",
+    )
+
+    return {
+        "model": {
+            "phase": 4,
+            "build_scope": PHASE4_BUILD_SCOPE,
+            "upstream_demand_contract": PHASE4_UPSTREAM_DEMAND_CONTRACT,
+        },
+        "modules": {
+            "enabled": list(PHASE1_MODULES),
+            "disabled": list(PHASE4_DISABLED_CAPABILITIES),
+        },
+        "conversion": {
+            "dp_to_fg_yield": float(yield_default_row["dp_to_fg_yield"]),
+            "ds_to_dp_yield": float(yield_default_row["ds_to_dp_yield"]),
+            "ds_qty_per_dp_unit_mg": float(product_default_row["ds_qty_per_dp_unit_mg"]),
+            "ds_overage_factor": float(yield_default_row["ds_overage_factor"]),
+            "ss_ratio_to_fg": float(ss_default_row["ss_ratio_to_fg"]),
+            "weeks_per_month": float(scenario_default_trade_row["weeks_per_month"]),
+        },
+        "review": {
+            "bullwhip_amplification_threshold": float(
+                scenario_default_trade_row["bullwhip_amplification_threshold"]
+            ),
+            "bullwhip_review_window_months": int(
+                scenario_default_trade_row["bullwhip_review_window_months"]
+            ),
+            "excess_build_threshold_ratio": float(
+                scenario_default_trade_row["excess_build_threshold_ratio"]
+            ),
+            "supply_gap_tolerance_units": float(
+                scenario_default_trade_row["supply_gap_tolerance_units"]
+            ),
+            "capacity_clip_tolerance_units": float(
+                scenario_default_trade_row["capacity_clip_tolerance_units"]
+            ),
+        },
+        "stepdown": {
+            "cml_prevalent_forward_window_months": int(
+                scenario_default_trade_row["cml_prevalent_forward_window_months"]
+            ),
+            "projected_cml_prevalent_bolus_exhaustion_month_index": int(
+                float(scenario_default_trade_row["projected_cml_prevalent_bolus_exhaustion_month_index"])
+            ),
+        },
+        "fg": {
+            "lead_time_from_dp_release_weeks": float(
+                scenario_default_trade_row["fg_lead_time_from_dp_release_weeks"]
+            ),
+            "packaging_cycle_weeks": float(scenario_default_trade_row["fg_packaging_cycle_weeks"]),
+            "release_qa_weeks": float(scenario_default_trade_row["fg_release_qa_weeks"]),
+            "total_order_to_release_weeks": float(
+                scenario_default_trade_row["fg_total_order_to_release_weeks"]
+            ),
+            "packaging_campaign_size_units": float(
+                scenario_default_trade_row["fg_packaging_campaign_size_units"]
+            ),
+        },
+        "dp": {
+            "lead_time_from_ds_release_weeks": float(
+                scenario_default_trade_row["dp_lead_time_from_ds_release_weeks"]
+            ),
+            "manufacturing_cycle_weeks": float(
+                scenario_default_trade_row["dp_manufacturing_cycle_weeks"]
+            ),
+            "release_testing_weeks": float(scenario_default_trade_row["dp_release_testing_weeks"]),
+            "total_order_to_release_weeks": float(
+                scenario_default_trade_row["dp_total_order_to_release_weeks"]
+            ),
+            "min_batch_size_units": float(scenario_default_trade_row["dp_min_batch_size_units"]),
+            "max_batch_size_units": float(scenario_default_trade_row["dp_max_batch_size_units"]),
+            "min_campaign_batches": int(scenario_default_trade_row["dp_min_campaign_batches"]),
+            "annual_capacity_batches": int(scenario_default_trade_row["dp_annual_capacity_batches"]),
+        },
+        "ds": {
+            "lead_time_to_batch_start_planning_horizon_weeks": float(
+                scenario_default_trade_row["ds_lead_time_to_batch_start_planning_horizon_weeks"]
+            ),
+            "manufacturing_cycle_weeks": float(
+                scenario_default_trade_row["ds_manufacturing_cycle_weeks"]
+            ),
+            "release_testing_weeks": float(scenario_default_trade_row["ds_release_testing_weeks"]),
+            "total_order_to_release_weeks": float(
+                scenario_default_trade_row["ds_total_order_to_release_weeks"]
+            ),
+            "min_batch_size_kg": float(scenario_default_trade_row["ds_min_batch_size_kg"]),
+            "max_batch_size_kg": float(scenario_default_trade_row["ds_max_batch_size_kg"]),
+            "min_campaign_batches": int(scenario_default_trade_row["ds_min_campaign_batches"]),
+            "annual_capacity_batches": int(scenario_default_trade_row["ds_annual_capacity_batches"]),
+        },
+        "ss": {
+            "order_to_release_lead_time_weeks": float(
+                scenario_default_trade_row["ss_order_to_release_lead_time_weeks"]
+            ),
+            "batch_size_units": float(scenario_default_trade_row["ss_batch_size_units"]),
+            "min_campaign_batches": int(scenario_default_trade_row["ss_min_campaign_batches"]),
+            "annual_capacity_batches": int(scenario_default_trade_row["ss_annual_capacity_batches"]),
+            "release_must_coincide_with_or_precede_fg": _parse_stored_bool(
+                scenario_default_trade_row["ss_release_must_coincide_with_or_precede_fg"]
+            ),
+        },
+        "validation": {
+            "enforce_unique_output_keys": True,
+        },
+        "wiring_notes": [
+            "Product_Parameters scenario_default row feeds conversion.ds_qty_per_dp_unit_mg in the active deterministic Phase 4 config.",
+            "Yield_Assumptions scenario_default row feeds conversion.dp_to_fg_yield / conversion.ds_to_dp_yield / conversion.ds_overage_factor in the active deterministic Phase 4 config.",
+            "SS_Assumptions scenario default row feeds conversion.ss_ratio_to_fg in the active deterministic Phase 4 config.",
+            "Trade_Inventory_FutureHooks scenario_default row feeds active deterministic Phase 4 review, stepdown, FG, DP, DS, and SS scheduling parameters.",
+        ],
+    }
+
+
+def _resolve_phase5_config(
+    *,
+    product_rows: list[dict[str, str]],
+    yield_rows: list[dict[str, str]],
+    ss_rows: list[dict[str, str]],
+    trade_rows: list[dict[str, str]],
+) -> dict[str, object]:
+    active_product_rows = _active_rows(product_rows)
+    active_yield_rows = _active_rows(yield_rows)
+    active_ss_rows = _active_rows(ss_rows)
+    active_trade_rows = _active_rows(trade_rows)
+
+    product_default_row = _find_active_row(
+        active_product_rows,
+        sheet_name="Product_Parameters",
+        required_fields={"parameter_scope": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide an active scenario_default product row with module = ALL and geography_code = ALL.",
+    )
+    yield_default_row = _find_active_row(
+        active_yield_rows,
+        sheet_name="Yield_Assumptions",
+        required_fields={"parameter_scope": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide one active scenario_default yield row with module = ALL and geography_code = ALL.",
+    )
+    ss_default_row = _resolve_ss_default_row(active_ss_rows)
+    scenario_default_trade_row = _find_active_row(
+        active_trade_rows,
+        sheet_name="Trade_Inventory_FutureHooks",
+        required_fields={"trade_row_type": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide one active scenario_default row with module = ALL and geography_code = ALL.",
+    )
+
+    return {
+        "model": {
+            "phase": 5,
+            "build_scope": PHASE5_BUILD_SCOPE,
+            "upstream_supply_contract": PHASE5_UPSTREAM_SUPPLY_CONTRACT,
+        },
+        "modules": {
+            "enabled": list(PHASE1_MODULES),
+            "disabled": list(PHASE5_DISABLED_CAPABILITIES),
+        },
+        "starting_inventory": {
+            "ds_mg": float(scenario_default_trade_row["starting_inventory_ds_mg"]),
+            "dp_units": float(scenario_default_trade_row["starting_inventory_dp_units"]),
+            "fg_units": float(scenario_default_trade_row["starting_inventory_fg_units"]),
+            "ss_units": float(scenario_default_trade_row["starting_inventory_ss_units"]),
+            "sublayer1_fg_units": float(
+                scenario_default_trade_row["starting_inventory_sublayer1_fg_units"]
+            ),
+            "sublayer2_fg_units": float(
+                scenario_default_trade_row["starting_inventory_sublayer2_fg_units"]
+            ),
+        },
+        "shelf_life": {
+            "ds_months": int(scenario_default_trade_row["shelf_life_ds_months"]),
+            "dp_months": int(scenario_default_trade_row["shelf_life_dp_months"]),
+            "fg_months": int(scenario_default_trade_row["shelf_life_fg_months"]),
+            "ss_months": int(scenario_default_trade_row["shelf_life_ss_months"]),
+        },
+        "policy": {
+            "excess_inventory_threshold_months_of_cover": float(
+                scenario_default_trade_row["excess_inventory_threshold_months_of_cover"]
+            ),
+            "stockout_tolerance_units": float(scenario_default_trade_row["stockout_tolerance_units"]),
+            "fefo_enabled": _parse_stored_bool(scenario_default_trade_row["fefo_enabled"]),
+            "ss_fg_match_required": _parse_stored_bool(
+                scenario_default_trade_row["ss_fg_match_required"]
+            ),
+            "allow_prelaunch_inventory_build": _parse_stored_bool(
+                scenario_default_trade_row["allow_prelaunch_inventory_build"]
+            ),
+        },
+        "conversion": {
+            "dp_to_fg_yield": float(yield_default_row["dp_to_fg_yield"]),
+            "ds_to_dp_yield": float(yield_default_row["ds_to_dp_yield"]),
+            "ds_qty_per_dp_unit_mg": float(product_default_row["ds_qty_per_dp_unit_mg"]),
+            "ds_overage_factor": float(yield_default_row["ds_overage_factor"]),
+            "ss_ratio_to_fg": float(ss_default_row["ss_ratio_to_fg"]),
+        },
+        "validation": {
+            "enforce_unique_output_keys": _parse_stored_bool(
+                scenario_default_trade_row["phase5_enforce_unique_output_keys"]
+            ),
+            "reconcile_phase4_receipts": _parse_stored_bool(
+                scenario_default_trade_row["phase5_reconcile_phase4_receipts"]
+            ),
+            "reconciliation_tolerance_units": float(
+                scenario_default_trade_row["phase5_reconciliation_tolerance_units"]
+            ),
+        },
+        "wiring_notes": [
+            "Trade_Inventory_FutureHooks scenario_default row feeds active deterministic Phase 5 starting inventory, shelf life, policy, and validation parameters.",
+            "Product_Parameters scenario_default row feeds conversion.ds_qty_per_dp_unit_mg in the active deterministic Phase 5 config.",
+            "Yield_Assumptions scenario_default row feeds conversion.dp_to_fg_yield / conversion.ds_to_dp_yield / conversion.ds_overage_factor in the active deterministic Phase 5 config.",
+            "SS_Assumptions scenario default row feeds conversion.ss_ratio_to_fg in the active deterministic Phase 5 config.",
+        ],
+    }
+
+
 def _write_assumption_outputs(
     *,
     output_dir: Path,
@@ -1535,6 +2308,8 @@ def _write_assumption_outputs(
     trade_rows: list[dict[str, str]],
     resolved_phase2: dict[str, object],
     resolved_phase3: dict[str, object],
+    resolved_phase4: dict[str, object],
+    resolved_phase5: dict[str, object],
     workbook_path: Path,
     warnings: list[str],
 ) -> dict[str, Path]:
@@ -1552,11 +2327,17 @@ def _write_assumption_outputs(
         "trade_inventory_futurehooks": output_dir / "trade_inventory_futurehooks.csv",
         "resolved_phase2_snapshot": output_dir / "resolved_phase2_config_snapshot.json",
         "resolved_phase3_snapshot": output_dir / "resolved_phase3_config_snapshot.json",
+        "resolved_phase4_snapshot": output_dir / "resolved_phase4_config_snapshot.json",
+        "resolved_phase5_snapshot": output_dir / "resolved_phase5_config_snapshot.json",
         "import_summary": output_dir / "assumptions_import_summary.json",
         "generated_phase2_parameters": output_dir / "generated_phase2_parameters.toml",
         "generated_phase2_scenario": output_dir / "generated_phase2_scenario.toml",
         "generated_phase3_parameters": output_dir / "generated_phase3_parameters.toml",
         "generated_phase3_scenario": output_dir / "generated_phase3_scenario.toml",
+        "generated_phase4_parameters": output_dir / "generated_phase4_parameters.toml",
+        "generated_phase4_scenario": output_dir / "generated_phase4_scenario.toml",
+        "generated_phase5_parameters": output_dir / "generated_phase5_parameters.toml",
+        "generated_phase5_scenario": output_dir / "generated_phase5_scenario.toml",
     }
     _write_csv(file_paths["scenario_controls"], SCENARIO_CONTROLS_HEADERS, scenario_controls_rows)
     _write_csv(file_paths["launch_timing"], LAUNCH_TIMING_HEADERS, launch_timing_rows)
@@ -1594,6 +2375,26 @@ def _write_assumption_outputs(
         ),
         encoding="utf-8",
     )
+    file_paths["resolved_phase4_snapshot"].write_text(
+        json.dumps(
+            {
+                "scenario_name": context.scenario_name,
+                "resolved_phase4": resolved_phase4,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    file_paths["resolved_phase5_snapshot"].write_text(
+        json.dumps(
+            {
+                "scenario_name": context.scenario_name,
+                "resolved_phase5": resolved_phase5,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     _write_generated_phase2_parameters(
         file_paths["generated_phase2_parameters"],
@@ -1614,6 +2415,26 @@ def _write_assumption_outputs(
         scenario_name=context.scenario_name,
         parameter_config_path=file_paths["generated_phase3_parameters"],
         scenario_output_path=file_paths["generated_phase3_scenario"],
+    )
+    _write_generated_phase4_parameters(
+        file_paths["generated_phase4_parameters"],
+        resolved_phase4,
+    )
+    _write_generated_phase4_scenario(
+        output_dir=output_dir,
+        scenario_name=context.scenario_name,
+        parameter_config_path=file_paths["generated_phase4_parameters"],
+        scenario_output_path=file_paths["generated_phase4_scenario"],
+    )
+    _write_generated_phase5_parameters(
+        file_paths["generated_phase5_parameters"],
+        resolved_phase5,
+    )
+    _write_generated_phase5_scenario(
+        output_dir=output_dir,
+        scenario_name=context.scenario_name,
+        parameter_config_path=file_paths["generated_phase5_parameters"],
+        scenario_output_path=file_paths["generated_phase5_scenario"],
     )
 
     summary_payload = {
@@ -1647,14 +2468,16 @@ def _write_assumption_outputs(
             "Product_Parameters scenario_default row -> ds.qty_per_dp_unit_mg",
             "SS_Assumptions scenario default row -> ss.ratio_to_fg and model.co_pack_mode",
             "Trade_Inventory_FutureHooks scenario_default / geography_default / launch_event rows -> active deterministic Phase 3 config generation",
+            "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 4 config generation",
+            "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 5 config generation",
         ],
         "future_ready_only": [
             "Launch_Timing normalized only; not yet wired into active engine logic.",
             "CML_Prevalent_Assumptions normalized only; not yet wired into active Phase 2 config generation.",
-            "Broader future-phase inventory logic remains deferred even though Trade_Inventory_FutureHooks now feeds the active deterministic Phase 3 trade config.",
             "Product_Parameters module_override ds_qty_per_dp_unit_mg rows are preserved but not yet consumed by the current engine.",
             "Yield_Assumptions module_override ds_overage_factor rows are preserved but not yet consumed by the current engine.",
             "dp_concentration_mg_per_ml and dp_fill_volume_ml are preserved but not yet consumed by the current engine.",
+            "Broader future-phase execution, financial, and Monte Carlo logic remains deferred even though the assumptions workbook now feeds the active deterministic Phase 3, Phase 4, and Phase 5 configs.",
         ],
         "warnings": warnings,
     }
@@ -1865,6 +2688,229 @@ def _write_generated_phase3_scenario(
                 "",
                 "[outputs]",
                 f'deterministic_trade_layer = "{output_ref}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_generated_phase4_parameters(path: Path, resolved_phase4: dict[str, object]) -> None:
+    model = resolved_phase4["model"]
+    modules = resolved_phase4["modules"]
+    conversion = resolved_phase4["conversion"]
+    review = resolved_phase4["review"]
+    stepdown = resolved_phase4["stepdown"]
+    fg = resolved_phase4["fg"]
+    dp = resolved_phase4["dp"]
+    ds = resolved_phase4["ds"]
+    ss = resolved_phase4["ss"]
+    validation = resolved_phase4["validation"]
+
+    lines = [
+        "# GENERATED BY scripts/assumptions_import.py",
+        "# Business-facing assumptions workbook bridge into the current Phase 4 config path.",
+        "",
+        "[model]",
+        f'phase = {model["phase"]}',
+        f'build_scope = "{model["build_scope"]}"',
+        f'upstream_demand_contract = "{model["upstream_demand_contract"]}"',
+        "",
+        "[modules]",
+        f'enabled = {_toml_list(modules["enabled"])}',
+        f'disabled = {_toml_list(modules["disabled"])}',
+        "",
+        "[conversion]",
+        f'dp_to_fg_yield = {conversion["dp_to_fg_yield"]}',
+        f'ds_to_dp_yield = {conversion["ds_to_dp_yield"]}',
+        f'ds_qty_per_dp_unit_mg = {conversion["ds_qty_per_dp_unit_mg"]}',
+        f'ds_overage_factor = {conversion["ds_overage_factor"]}',
+        f'ss_ratio_to_fg = {conversion["ss_ratio_to_fg"]}',
+        f'weeks_per_month = {conversion["weeks_per_month"]}',
+        "",
+        "[review]",
+        f'bullwhip_amplification_threshold = {review["bullwhip_amplification_threshold"]}',
+        f'bullwhip_review_window_months = {review["bullwhip_review_window_months"]}',
+        f'excess_build_threshold_ratio = {review["excess_build_threshold_ratio"]}',
+        f'supply_gap_tolerance_units = {review["supply_gap_tolerance_units"]}',
+        f'capacity_clip_tolerance_units = {review["capacity_clip_tolerance_units"]}',
+        "",
+        "[stepdown]",
+        f'cml_prevalent_forward_window_months = {stepdown["cml_prevalent_forward_window_months"]}',
+        f'projected_cml_prevalent_bolus_exhaustion_month_index = {stepdown["projected_cml_prevalent_bolus_exhaustion_month_index"]}',
+        "",
+        "[fg]",
+        f'lead_time_from_dp_release_weeks = {fg["lead_time_from_dp_release_weeks"]}',
+        f'packaging_cycle_weeks = {fg["packaging_cycle_weeks"]}',
+        f'release_qa_weeks = {fg["release_qa_weeks"]}',
+        f'total_order_to_release_weeks = {fg["total_order_to_release_weeks"]}',
+        f'packaging_campaign_size_units = {fg["packaging_campaign_size_units"]}',
+        "",
+        "[dp]",
+        f'lead_time_from_ds_release_weeks = {dp["lead_time_from_ds_release_weeks"]}',
+        f'manufacturing_cycle_weeks = {dp["manufacturing_cycle_weeks"]}',
+        f'release_testing_weeks = {dp["release_testing_weeks"]}',
+        f'total_order_to_release_weeks = {dp["total_order_to_release_weeks"]}',
+        f'min_batch_size_units = {dp["min_batch_size_units"]}',
+        f'max_batch_size_units = {dp["max_batch_size_units"]}',
+        f'min_campaign_batches = {dp["min_campaign_batches"]}',
+        f'annual_capacity_batches = {dp["annual_capacity_batches"]}',
+        "",
+        "[ds]",
+        f'lead_time_to_batch_start_planning_horizon_weeks = {ds["lead_time_to_batch_start_planning_horizon_weeks"]}',
+        f'manufacturing_cycle_weeks = {ds["manufacturing_cycle_weeks"]}',
+        f'release_testing_weeks = {ds["release_testing_weeks"]}',
+        f'total_order_to_release_weeks = {ds["total_order_to_release_weeks"]}',
+        f'min_batch_size_kg = {ds["min_batch_size_kg"]}',
+        f'max_batch_size_kg = {ds["max_batch_size_kg"]}',
+        f'min_campaign_batches = {ds["min_campaign_batches"]}',
+        f'annual_capacity_batches = {ds["annual_capacity_batches"]}',
+        "",
+        "[ss]",
+        f'order_to_release_lead_time_weeks = {ss["order_to_release_lead_time_weeks"]}',
+        f'batch_size_units = {ss["batch_size_units"]}',
+        f'min_campaign_batches = {ss["min_campaign_batches"]}',
+        f'annual_capacity_batches = {ss["annual_capacity_batches"]}',
+        f'release_must_coincide_with_or_precede_fg = {_toml_bool(ss["release_must_coincide_with_or_precede_fg"])}',
+        "",
+        "[validation]",
+        f'enforce_unique_output_keys = {_toml_bool(validation["enforce_unique_output_keys"])}',
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_generated_phase4_scenario(
+    *,
+    output_dir: Path,
+    scenario_name: str,
+    parameter_config_path: Path,
+    scenario_output_path: Path,
+) -> None:
+    default_phase3_output = output_dir.parent / "phase3_trade_layer.csv"
+    schedule_detail_output = output_dir.parent / "phase4_schedule_detail.csv"
+    monthly_summary_output = output_dir.parent / "phase4_monthly_summary.csv"
+    parameter_ref = _relative_path_for_toml(parameter_config_path, start=output_dir)
+    input_ref = _relative_path_for_toml(default_phase3_output, start=output_dir)
+    detail_ref = _relative_path_for_toml(schedule_detail_output, start=output_dir)
+    summary_ref = _relative_path_for_toml(monthly_summary_output, start=output_dir)
+    scenario_output_path.write_text(
+        "\n".join(
+            [
+                "# GENERATED BY scripts/assumptions_import.py",
+                "# Use directly with scripts/run_phase4.py or let scripts/run_forecast_workflow.py consume it.",
+                f'scenario_name = "{scenario_name}"',
+                f'parameter_config = "{parameter_ref}"',
+                "",
+                "[inputs]",
+                f'phase3_trade_layer = "{input_ref}"',
+                "",
+                "[outputs]",
+                f'schedule_detail = "{detail_ref}"',
+                f'monthly_summary = "{summary_ref}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_generated_phase5_parameters(path: Path, resolved_phase5: dict[str, object]) -> None:
+    model = resolved_phase5["model"]
+    modules = resolved_phase5["modules"]
+    starting_inventory = resolved_phase5["starting_inventory"]
+    shelf_life = resolved_phase5["shelf_life"]
+    policy = resolved_phase5["policy"]
+    conversion = resolved_phase5["conversion"]
+    validation = resolved_phase5["validation"]
+
+    lines = [
+        "# GENERATED BY scripts/assumptions_import.py",
+        "# Business-facing assumptions workbook bridge into the current Phase 5 config path.",
+        "",
+        "[model]",
+        f'phase = {model["phase"]}',
+        f'build_scope = "{model["build_scope"]}"',
+        f'upstream_supply_contract = "{model["upstream_supply_contract"]}"',
+        "",
+        "[modules]",
+        f'enabled = {_toml_list(modules["enabled"])}',
+        f'disabled = {_toml_list(modules["disabled"])}',
+        "",
+        "[starting_inventory]",
+        f'ds_mg = {starting_inventory["ds_mg"]}',
+        f'dp_units = {starting_inventory["dp_units"]}',
+        f'fg_units = {starting_inventory["fg_units"]}',
+        f'ss_units = {starting_inventory["ss_units"]}',
+        f'sublayer1_fg_units = {starting_inventory["sublayer1_fg_units"]}',
+        f'sublayer2_fg_units = {starting_inventory["sublayer2_fg_units"]}',
+        "",
+        "[shelf_life]",
+        f'ds_months = {shelf_life["ds_months"]}',
+        f'dp_months = {shelf_life["dp_months"]}',
+        f'fg_months = {shelf_life["fg_months"]}',
+        f'ss_months = {shelf_life["ss_months"]}',
+        "",
+        "[policy]",
+        f'excess_inventory_threshold_months_of_cover = {policy["excess_inventory_threshold_months_of_cover"]}',
+        f'stockout_tolerance_units = {policy["stockout_tolerance_units"]}',
+        f'fefo_enabled = {_toml_bool(policy["fefo_enabled"])}',
+        f'ss_fg_match_required = {_toml_bool(policy["ss_fg_match_required"])}',
+        f'allow_prelaunch_inventory_build = {_toml_bool(policy["allow_prelaunch_inventory_build"])}',
+        "",
+        "[conversion]",
+        f'dp_to_fg_yield = {conversion["dp_to_fg_yield"]}',
+        f'ds_to_dp_yield = {conversion["ds_to_dp_yield"]}',
+        f'ds_qty_per_dp_unit_mg = {conversion["ds_qty_per_dp_unit_mg"]}',
+        f'ds_overage_factor = {conversion["ds_overage_factor"]}',
+        f'ss_ratio_to_fg = {conversion["ss_ratio_to_fg"]}',
+        "",
+        "[validation]",
+        f'enforce_unique_output_keys = {_toml_bool(validation["enforce_unique_output_keys"])}',
+        f'reconcile_phase4_receipts = {_toml_bool(validation["reconcile_phase4_receipts"])}',
+        f'reconciliation_tolerance_units = {validation["reconciliation_tolerance_units"]}',
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_generated_phase5_scenario(
+    *,
+    output_dir: Path,
+    scenario_name: str,
+    parameter_config_path: Path,
+    scenario_output_path: Path,
+) -> None:
+    default_phase3_output = output_dir.parent / "phase3_trade_layer.csv"
+    default_phase4_detail = output_dir.parent / "phase4_schedule_detail.csv"
+    default_phase4_summary = output_dir.parent / "phase4_monthly_summary.csv"
+    inventory_detail_output = output_dir.parent / "phase5_inventory_detail.csv"
+    inventory_summary_output = output_dir.parent / "phase5_monthly_inventory_summary.csv"
+    cohort_audit_output = output_dir.parent / "phase5_inventory_cohort_audit.csv"
+    parameter_ref = _relative_path_for_toml(parameter_config_path, start=output_dir)
+    phase3_ref = _relative_path_for_toml(default_phase3_output, start=output_dir)
+    phase4_detail_ref = _relative_path_for_toml(default_phase4_detail, start=output_dir)
+    phase4_summary_ref = _relative_path_for_toml(default_phase4_summary, start=output_dir)
+    detail_ref = _relative_path_for_toml(inventory_detail_output, start=output_dir)
+    summary_ref = _relative_path_for_toml(inventory_summary_output, start=output_dir)
+    cohort_ref = _relative_path_for_toml(cohort_audit_output, start=output_dir)
+    scenario_output_path.write_text(
+        "\n".join(
+            [
+                "# GENERATED BY scripts/assumptions_import.py",
+                "# Use directly with scripts/run_phase5.py or let scripts/run_forecast_workflow.py consume it.",
+                f'scenario_name = "{scenario_name}"',
+                f'parameter_config = "{parameter_ref}"',
+                "",
+                "[inputs]",
+                f'phase3_trade_layer = "{phase3_ref}"',
+                f'phase4_schedule_detail = "{phase4_detail_ref}"',
+                f'phase4_monthly_summary = "{phase4_summary_ref}"',
+                "",
+                "[outputs]",
+                f'inventory_detail = "{detail_ref}"',
+                f'monthly_inventory_summary = "{summary_ref}"',
+                f'cohort_audit = "{cohort_ref}"',
                 "",
             ]
         ),
