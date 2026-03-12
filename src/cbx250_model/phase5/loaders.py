@@ -7,6 +7,7 @@ from csv import DictReader
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..constants import PHYSICAL_SHARED_GEOGRAPHY, PHYSICAL_SHARED_MODULE
 from .config_schema import Phase5Config
 from .schemas import (
     InventorySignal,
@@ -91,6 +92,8 @@ def load_phase4_monthly_summary(path: Path) -> tuple[Phase4MonthlySummaryInputRe
             "module",
             "month_index",
             "calendar_month",
+            "underlying_patient_consumption_units",
+            "channel_inventory_build_units",
             "fg_release_units",
             "dp_release_units",
             "ds_release_quantity_mg",
@@ -112,6 +115,8 @@ def build_inventory_signals(
             "month_index": 0,
             "calendar_month": None,
             "patient_fg_demand_units": 0.0,
+            "underlying_patient_consumption_units": 0.0,
+            "channel_inventory_build_units": 0.0,
             "sublayer2_pull_units": 0.0,
             "ex_factory_fg_demand_units": 0.0,
             "sublayer2_wastage_units": 0.0,
@@ -125,37 +130,103 @@ def build_inventory_signals(
         }
     )
 
-    for record in phase3_rows:
-        key = (record.scenario_name, record.geography_code, record.module, record.month_index)
+    def ensure_bucket(
+        key: tuple[str, str, str, int],
+        *,
+        scenario_name: str,
+        geography_code: str,
+        module: str,
+        month_index: int,
+        calendar_month,
+    ) -> dict[str, object]:
         bucket = grouped[key]
-        bucket["scenario_name"] = record.scenario_name
-        bucket["geography_code"] = record.geography_code
-        bucket["module"] = record.module
-        bucket["month_index"] = record.month_index
-        bucket["calendar_month"] = record.calendar_month
-        bucket["patient_fg_demand_units"] += record.patient_fg_demand_units
-        bucket["sublayer2_pull_units"] += record.sublayer2_pull_units
-        bucket["ex_factory_fg_demand_units"] += record.ex_factory_fg_demand_units
-        bucket["sublayer2_wastage_units"] += record.sublayer2_wastage_units
-        bucket["new_site_stocking_orders_units"] += record.new_site_stocking_orders_units
-        bucket["ss_site_stocking_units"] += record.ss_site_stocking_units
-        if record.notes:
-            bucket["notes"].append(record.notes)
+        bucket["scenario_name"] = scenario_name
+        bucket["geography_code"] = geography_code
+        bucket["module"] = module
+        bucket["month_index"] = month_index
+        if calendar_month is not None:
+            bucket["calendar_month"] = calendar_month
+        return bucket
+
+    for record in phase3_rows:
+        for key, geography_code, module in (
+            (
+                (
+                    record.scenario_name,
+                    record.geography_code,
+                    PHYSICAL_SHARED_MODULE,
+                    record.month_index,
+                ),
+                record.geography_code,
+                PHYSICAL_SHARED_MODULE,
+            ),
+            (
+                (
+                    record.scenario_name,
+                    PHYSICAL_SHARED_GEOGRAPHY,
+                    PHYSICAL_SHARED_MODULE,
+                    record.month_index,
+                ),
+                PHYSICAL_SHARED_GEOGRAPHY,
+                PHYSICAL_SHARED_MODULE,
+            ),
+        ):
+            bucket = ensure_bucket(
+                key,
+                scenario_name=record.scenario_name,
+                geography_code=geography_code,
+                module=module,
+                month_index=record.month_index,
+                calendar_month=record.calendar_month,
+            )
+            bucket["patient_fg_demand_units"] += record.patient_fg_demand_units
+            bucket["sublayer2_pull_units"] += record.sublayer2_pull_units
+            bucket["ex_factory_fg_demand_units"] += record.ex_factory_fg_demand_units
+            bucket["sublayer2_wastage_units"] += record.sublayer2_wastage_units
+            bucket["new_site_stocking_orders_units"] += record.new_site_stocking_orders_units
+            bucket["ss_site_stocking_units"] += record.ss_site_stocking_units
+            if record.notes:
+                bucket["notes"].append(record.notes)
 
     for record in phase4_rows:
-        key = (record.scenario_name, record.geography_code, record.module, record.month_index)
-        bucket = grouped[key]
-        bucket["scenario_name"] = record.scenario_name
-        bucket["geography_code"] = record.geography_code
-        bucket["module"] = record.module
-        bucket["month_index"] = record.month_index
-        bucket["calendar_month"] = record.calendar_month
-        bucket["fg_release_units"] += record.fg_release_units
-        bucket["dp_release_units"] += record.dp_release_units
-        bucket["ds_release_quantity_mg"] += record.ds_release_quantity_mg
-        bucket["ss_release_units"] += record.ss_release_units
-        if record.notes:
-            bucket["notes"].append(record.notes)
+        for key, geography_code, module in (
+            (
+                (
+                    record.scenario_name,
+                    record.geography_code,
+                    PHYSICAL_SHARED_MODULE,
+                    record.month_index,
+                ),
+                record.geography_code,
+                PHYSICAL_SHARED_MODULE,
+            ),
+            (
+                (
+                    record.scenario_name,
+                    PHYSICAL_SHARED_GEOGRAPHY,
+                    PHYSICAL_SHARED_MODULE,
+                    record.month_index,
+                ),
+                PHYSICAL_SHARED_GEOGRAPHY,
+                PHYSICAL_SHARED_MODULE,
+            ),
+        ):
+            bucket = ensure_bucket(
+                key,
+                scenario_name=record.scenario_name,
+                geography_code=geography_code,
+                module=module,
+                month_index=record.month_index,
+                calendar_month=record.calendar_month,
+            )
+            bucket["fg_release_units"] += record.fg_release_units
+            bucket["dp_release_units"] += record.dp_release_units
+            bucket["ds_release_quantity_mg"] += record.ds_release_quantity_mg
+            bucket["ss_release_units"] += record.ss_release_units
+            bucket["underlying_patient_consumption_units"] += record.underlying_patient_consumption_units
+            bucket["channel_inventory_build_units"] += record.channel_inventory_build_units
+            if record.notes:
+                bucket["notes"].append(record.notes)
 
     signals: list[InventorySignal] = []
     for bucket in grouped.values():
@@ -167,6 +238,10 @@ def build_inventory_signals(
                 month_index=int(bucket["month_index"]),
                 calendar_month=bucket["calendar_month"],  # type: ignore[arg-type]
                 patient_fg_demand_units=float(bucket["patient_fg_demand_units"]),
+                underlying_patient_consumption_units=float(
+                    bucket["underlying_patient_consumption_units"]
+                ),
+                channel_inventory_build_units=float(bucket["channel_inventory_build_units"]),
                 sublayer2_pull_units=float(bucket["sublayer2_pull_units"]),
                 ex_factory_fg_demand_units=float(bucket["ex_factory_fg_demand_units"]),
                 sublayer2_wastage_units=float(bucket["sublayer2_wastage_units"]),

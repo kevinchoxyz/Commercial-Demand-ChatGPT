@@ -195,7 +195,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `generated_phase2_scenario.toml`
   - `phase3_trade_layer.csv` when `--run-phase3` is enabled
   - `generated_phase3_scenario.toml` when `--run-phase3` is enabled
-  - `phase4_schedule_detail.csv` and `phase4_monthly_summary.csv` when `--run-phase4` or `--run-phase5` is enabled
+  - `phase4_schedule_detail.csv`, `phase4_allocation_detail.csv`, and `phase4_monthly_summary.csv` when `--run-phase4` or `--run-phase5` is enabled
   - `generated_phase4_scenario.toml` when `--run-phase4` or `--run-phase5` is enabled
   - `phase5_inventory_detail.csv`, `phase5_monthly_summary.csv`, and `phase5_inventory_cohort_audit.csv` when `--run-phase5` is enabled
   - `generated_phase5_scenario.toml` when `--run-phase5` is enabled
@@ -371,9 +371,12 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - The authoritative Phase 4 outputs are:
   - `[outputs].schedule_detail`
   - `[outputs].monthly_summary`
+- A separate allocation audit output is also written next to the schedule detail file:
+  - `phase4_allocation_detail.csv`
 - Sample output paths:
   - `data/outputs/base_phase4_schedule_detail.csv`
   - `data/outputs/base_phase4_monthly_summary.csv`
+  - `data/outputs/base_phase4_allocation_detail.csv`
 - The schedule-detail CSV includes at least:
   - `scenario_name`
   - `stage`
@@ -381,10 +384,13 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `geography_code`
   - `batch_number`
   - `demand_month_index`
+  - `support_start_month_index`
+  - `support_end_month_index`
   - `month_index`
   - `planned_start_month`
   - `planned_release_month`
   - `batch_quantity`
+  - `allocated_support_quantity`
   - `quantity_unit`
   - `cumulative_released_quantity`
   - `capacity_used`
@@ -405,6 +411,15 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `cumulative_ss_released`
   - `unmet_demand_units`
 - Phase 4 refined output meanings:
+  - `phase4_schedule_detail.csv` now represents physical batch or packaging release events only. `batch_quantity` is the physical released quantity for that batch/campaign row.
+  - `phase4_allocation_detail.csv` is the clean trace file for how physical batches support downstream demand months. Small demand allocations no longer appear as independent physical start/release rows.
+  - In `phase4_schedule_detail.csv`, `allocated_support_quantity` is the amount of downstream support currently allocated to that physical batch within the modeled horizon.
+  - Physical scheduling grain is explicit:
+    - `DS` physical rows are shared across all modules and geographies with `module = ALL` and `geography_code = ALL`.
+    - `DP` physical rows are shared across all modules and geographies with `module = ALL` and `geography_code = ALL`.
+    - `FG` physical rows are geography-specific finished-goods packaging rows with `module = ALL`.
+    - `SS` physical rows are geography-specific packaged/labeled stabilizer rows with `module = ALL`.
+  - Module-level traceability remains in `phase4_allocation_detail.csv` through `allocated_module`, `allocated_geography_code`, and `allocated_support_quantity`.
   - `unmet_demand_units` = true underlying patient-demand shortfall after deterministic FG/DP/DS/SS schedule support is applied
   - excluded channel-build inflation from Phase 3 is not counted as unmet demand in Phase 4
   - `capacity_flag` = required underlying quantity for that demand month could not be fully supported because a deterministic stage annual-capacity limit clipped support
@@ -416,11 +431,16 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `phase3_trade_layer.csv`
   - `base_phase4_schedule_detail.csv`
   - `base_phase4_monthly_summary.csv`
+- Phase 5 receipts are driven by the physical release rows in `phase4_schedule_detail.csv`, not by per-demand allocation quantities. Later demand months consume from inventory created by those physical releases.
+- Phase 5 consumes those physical receipts at the corrected physical grain:
+  - `DS` and `DP` receipts enter shared supply pools across all modules and geographies.
+  - `FG` and packaged/labeled `SS` receipts enter geography-level pools aggregated across modules within each geography.
 - The inventory layer remains upstream-contract driven and agnostic to whether upstream treated demand originated from `treated_census` or `patient_starts`.
 - Current deterministic inventory logic:
   - rolls monthly balances using `opening + receipts - issues - expiries = ending`
   - uses month-bucketed receipt cohorts with deterministic FEFO consumption when `policy.fefo_enabled = true`
   - carries pre-month-1 Phase 4 releases into month-1 opening inventory when `policy.allow_prelaunch_inventory_build = true`
+  - can convert month-1 launch-supporting FG, SS, Sub-Layer 1 FG, and Sub-Layer 2 FG positioning into opening inventory instead of leaving those units visible only as month-1 receipts
   - tracks DS, DP, FG central, SS central, Sub-Layer 1 FG, and Sub-Layer 2 FG balances
   - flags stockout, excess inventory, expiry, and FG/SS mismatch risk
   - treats configured starting inventory as a fresh month-1 opening cohort in the current deterministic implementation
@@ -428,8 +448,14 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `config/scenarios/base_phase5.toml`
   - `config/parameters/phase5_inventory_layer.toml`
 - Current clearly labeled placeholders pending fuller business approval:
-  - `shelf_life.*`
-  - `policy.excess_inventory_threshold_months_of_cover`
+  - revised deterministic baseline shelf lives:
+    - `shelf_life.ds_months = 48`
+    - `shelf_life.dp_months = 36`
+    - `shelf_life.fg_months = 36`
+    - `shelf_life.ss_months = 48`
+  - revised deterministic baseline excess-cover threshold:
+    - `policy.excess_inventory_threshold_months_of_cover = 18`
+  - these remain clearly labeled placeholder baseline assumptions until business-approved inventory policy values are loaded
 
 ## Phase 5 Outputs
 - `config/scenarios/base_phase5.toml` is the sample Phase 5 scenario.
@@ -453,6 +479,9 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `demand_signal_units`
   - `required_administrable_demand_units`
   - `policy_excluded_channel_build_units`
+  - `inventory_policy_gap_units`
+  - `cover_demand_units`
+  - `effective_cover_demand_units`
   - `months_of_cover`
   - `stockout_flag`
   - `excess_inventory_flag`
@@ -460,9 +489,20 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `fg_ss_mismatch_flag`
 - Refined Phase 5 inventory interpretation:
   - `stockout_flag` now means true shortage against required administrable demand only.
+  - For FG / SS / Sub-Layer 1 / Sub-Layer 2 nodes, true required demand is now interpreted against patient-support demand only, not against temporary channel-build inflation or non-administrable trade noise.
   - Temporary channel-build inflation from Phase 3 is preserved in `demand_signal_units` for traceability, but excluded from true shortage and excess flagging through `policy_excluded_channel_build_units`.
-  - `required_administrable_demand_units` is the demand basis used for `shortfall_units`, `stockout_flag`, and `months_of_cover`.
-  - `excess_inventory_flag` now requires both positive required administrable demand and ending months of cover above the configured threshold; zero-demand months no longer default to `inf` cover and false-positive excess.
+  - `inventory_policy_gap_units` captures policy-intended channel drawdown or underfill that remains visible for audit but is not mislabeled as true shortage.
+  - `required_administrable_demand_units` is the demand basis used for `shortfall_units` and `stockout_flag`.
+  - month-1 prelaunch positioning can reduce current-month required issues at `FG_Central`, `SS_Central`, and `SubLayer1_FG` because those launch-supporting units were already staged into downstream opening inventory before the modeled month begins.
+  - `cover_demand_units` is the raw cover basis carried for audit, and `effective_cover_demand_units` is the cover denominator used for `months_of_cover` and `excess_inventory_flag` after including any policy drawdown requirement.
+  - `excess_inventory_flag` now reflects inventory above the configured threshold relative to current required demand plus any audited policy drawdown requirement; zero-demand months no longer default to `inf` cover and false-positive excess.
+  - The current deterministic baseline uses revised placeholder Phase 5 policy assumptions to make the real FixedBaseline run more operationally credible without hiding true shortages:
+    - DS shelf life `48` months
+    - DP shelf life `36` months
+    - FG shelf life `36` months
+    - SS shelf life `48` months
+    - excess inventory threshold `18` months of cover
+  - Remaining stockout rows after this calibration should be interpreted as true release-timing or support pressure, not as a channel-build policy artifact.
 - The monthly inventory summary CSV includes at least:
   - `ds_inventory_mg`
   - `dp_inventory_units`

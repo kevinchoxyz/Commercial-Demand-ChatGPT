@@ -7,7 +7,7 @@ from datetime import date
 import json
 import math
 
-from ..constants import MODULE_TO_SEGMENTS, PHASE1_MODULES
+from ..constants import MODULE_TO_SEGMENTS, PHASE1_MODULES, PHYSICAL_SHARED_MODULE
 
 
 INVENTORY_NODES = (
@@ -142,6 +142,10 @@ class Phase4ScheduleDetailInputRecord:
     batch_number: str
     demand_month_index: int
     demand_calendar_month: date
+    support_start_month_index: int
+    support_start_calendar_month: date
+    support_end_month_index: int
+    support_end_calendar_month: date
     month_index: int
     calendar_month: date
     planned_start_month_index: int
@@ -149,6 +153,7 @@ class Phase4ScheduleDetailInputRecord:
     planned_release_month_index: int
     planned_release_month: date
     batch_quantity: float
+    allocated_support_quantity: float
     quantity_unit: str
     notes: str
 
@@ -162,8 +167,10 @@ class Phase4ScheduleDetailInputRecord:
         if stage not in ("DS", "DP", "FG", "SS"):
             raise ValueError(f"stage must be one of ('DS', 'DP', 'FG', 'SS'), received {stage!r}.")
         module = _require_nonempty(row["module"], "module")
-        if module not in PHASE1_MODULES:
-            raise ValueError(f"module must be one of {PHASE1_MODULES}, received {module!r}.")
+        if module not in PHASE1_MODULES and module != PHYSICAL_SHARED_MODULE:
+            raise ValueError(
+                f"module must be one of {PHASE1_MODULES} or {PHYSICAL_SHARED_MODULE!r}, received {module!r}."
+            )
         return cls(
             scenario_name=_require_nonempty(row["scenario_name"], "scenario_name"),
             stage=stage,
@@ -172,6 +179,22 @@ class Phase4ScheduleDetailInputRecord:
             batch_number=_require_nonempty(row["batch_number"], "batch_number"),
             demand_month_index=_parse_positive_int(row["demand_month_index"], "demand_month_index"),
             demand_calendar_month=_parse_date(row["demand_calendar_month"], "demand_calendar_month"),
+            support_start_month_index=_parse_positive_int(
+                row.get("support_start_month_index", row["demand_month_index"]),
+                "support_start_month_index",
+            ),
+            support_start_calendar_month=_parse_date(
+                row.get("support_start_calendar_month", row["demand_calendar_month"]),
+                "support_start_calendar_month",
+            ),
+            support_end_month_index=_parse_positive_int(
+                row.get("support_end_month_index", row["demand_month_index"]),
+                "support_end_month_index",
+            ),
+            support_end_calendar_month=_parse_date(
+                row.get("support_end_calendar_month", row["demand_calendar_month"]),
+                "support_end_calendar_month",
+            ),
             month_index=_parse_int(row["month_index"], "month_index"),
             calendar_month=_parse_date(row["calendar_month"], "calendar_month"),
             planned_start_month_index=_parse_int(
@@ -185,6 +208,10 @@ class Phase4ScheduleDetailInputRecord:
                 row["planned_release_month"], "planned_release_month"
             ),
             batch_quantity=_parse_nonnegative_float(row["batch_quantity"], "batch_quantity"),
+            allocated_support_quantity=_parse_nonnegative_float(
+                row.get("allocated_support_quantity", row["batch_quantity"]),
+                "allocated_support_quantity",
+            ),
             quantity_unit=_require_nonempty(row["quantity_unit"], "quantity_unit"),
             notes=row.get("notes", "").strip(),
         )
@@ -197,6 +224,8 @@ class Phase4MonthlySummaryInputRecord:
     module: str
     month_index: int
     calendar_month: date
+    underlying_patient_consumption_units: float
+    channel_inventory_build_units: float
     fg_release_units: float
     dp_release_units: float
     ds_release_quantity_mg: float
@@ -218,6 +247,14 @@ class Phase4MonthlySummaryInputRecord:
             module=module,
             month_index=_parse_positive_int(row["month_index"], "month_index"),
             calendar_month=_parse_date(row["calendar_month"], "calendar_month"),
+            underlying_patient_consumption_units=_parse_nonnegative_float(
+                row["underlying_patient_consumption_units"],
+                "underlying_patient_consumption_units",
+            ),
+            channel_inventory_build_units=_parse_nonnegative_float(
+                row["channel_inventory_build_units"],
+                "channel_inventory_build_units",
+            ),
             fg_release_units=_parse_nonnegative_float(row["fg_release_units"], "fg_release_units"),
             dp_release_units=_parse_nonnegative_float(row["dp_release_units"], "dp_release_units"),
             ds_release_quantity_mg=_parse_nonnegative_float(
@@ -236,6 +273,8 @@ class InventorySignal:
     month_index: int
     calendar_month: date
     patient_fg_demand_units: float
+    underlying_patient_consumption_units: float
+    channel_inventory_build_units: float
     sublayer2_pull_units: float
     ex_factory_fg_demand_units: float
     sublayer2_wastage_units: float
@@ -269,6 +308,9 @@ class InventoryDetailRecord:
     demand_signal_units: float
     required_administrable_demand_units: float
     policy_excluded_channel_build_units: float
+    inventory_policy_gap_units: float
+    cover_demand_units: float
+    effective_cover_demand_units: float
     shortfall_units: float
     months_of_cover: float
     stockout_flag: bool
@@ -310,6 +352,9 @@ class InventoryDetailRecord:
             "policy_excluded_channel_build_units": _format_numeric(
                 self.policy_excluded_channel_build_units
             ),
+            "inventory_policy_gap_units": _format_numeric(self.inventory_policy_gap_units),
+            "cover_demand_units": _format_numeric(self.cover_demand_units),
+            "effective_cover_demand_units": _format_numeric(self.effective_cover_demand_units),
             "shortfall_units": _format_numeric(self.shortfall_units),
             "months_of_cover": _format_numeric(self.months_of_cover),
             "stockout_flag": json.dumps(self.stockout_flag),

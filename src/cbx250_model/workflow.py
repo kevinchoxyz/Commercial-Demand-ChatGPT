@@ -20,7 +20,11 @@ from .phase3.summary import build_phase3_run_summary
 from .phase3.writer import write_phase3_outputs
 from .phase4.runner import Phase4RunResult, run_phase4_scenario
 from .phase4.summary import build_phase4_run_summary
-from .phase4.writer import write_phase4_detail_outputs, write_phase4_monthly_summary
+from .phase4.writer import (
+    write_phase4_allocation_outputs,
+    write_phase4_detail_outputs,
+    write_phase4_monthly_summary,
+)
 from .phase5.runner import Phase5RunResult, run_phase5_scenario
 from .phase5.summary import build_phase5_run_summary
 from .phase5.writer import (
@@ -251,6 +255,10 @@ def run_forecast_workflow(
         phase4_schedule_detail_path = write_phase4_detail_outputs(
             phase4_result.config.output_paths.schedule_detail,
             phase4_result.schedule_detail,
+        )
+        write_phase4_allocation_outputs(
+            _derive_phase4_allocation_path(phase4_schedule_detail_path),
+            phase4_result.allocation_detail,
         )
         phase4_monthly_summary_path = write_phase4_monthly_summary(
             phase4_result.config.output_paths.monthly_summary,
@@ -899,6 +907,14 @@ def _resolve_relative_path(*, base_dir: Path, raw_path: str) -> Path:
 
 def _relative_path_for_toml(path: Path, *, start: Path) -> str:
     return Path(os.path.relpath(path, start=start)).as_posix()
+
+
+def _derive_phase4_allocation_path(schedule_detail_path: Path) -> Path:
+    if schedule_detail_path.name.endswith("_schedule_detail.csv"):
+        return schedule_detail_path.with_name(
+            schedule_detail_path.name.replace("_schedule_detail.csv", "_allocation_detail.csv")
+        )
+    return schedule_detail_path.with_name("phase4_allocation_detail.csv")
 
 
 def _derive_safe_scenario_name(workbook_path: Path) -> str:

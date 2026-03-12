@@ -5,7 +5,7 @@ from __future__ import annotations
 from csv import DictWriter
 from pathlib import Path
 
-from .schemas import ScheduleDetailRecord, ScheduleMonthlySummaryRecord
+from .schemas import ScheduleAllocationRecord, ScheduleDetailRecord, ScheduleMonthlySummaryRecord
 
 PHASE4_DETAIL_HEADERS = (
     "scenario_name",
@@ -15,6 +15,10 @@ PHASE4_DETAIL_HEADERS = (
     "batch_number",
     "demand_month_index",
     "demand_calendar_month",
+    "support_start_month_index",
+    "support_start_calendar_month",
+    "support_end_month_index",
+    "support_end_calendar_month",
     "month_index",
     "calendar_month",
     "planned_start_month_index",
@@ -22,6 +26,7 @@ PHASE4_DETAIL_HEADERS = (
     "planned_release_month_index",
     "planned_release_month",
     "batch_quantity",
+    "allocated_support_quantity",
     "quantity_unit",
     "cumulative_released_quantity",
     "capacity_used",
@@ -64,6 +69,26 @@ PHASE4_SUMMARY_HEADERS = (
     "notes",
 )
 
+PHASE4_ALLOCATION_HEADERS = (
+    "scenario_name",
+    "stage",
+    "module",
+    "geography_code",
+    "allocated_module",
+    "allocated_geography_code",
+    "source_batch_number",
+    "physical_batch_quantity",
+    "quantity_unit",
+    "planned_start_month_index",
+    "planned_start_month",
+    "planned_release_month_index",
+    "planned_release_month",
+    "allocated_to_demand_month_index",
+    "allocated_to_demand_calendar_month",
+    "allocated_support_quantity",
+    "notes",
+)
+
 
 def write_phase4_detail_outputs(path: Path, outputs: tuple[ScheduleDetailRecord, ...]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,6 +104,16 @@ def write_phase4_monthly_summary(path: Path, outputs: tuple[ScheduleMonthlySumma
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = DictWriter(handle, fieldnames=PHASE4_SUMMARY_HEADERS)
+        writer.writeheader()
+        for record in outputs:
+            writer.writerow(record.as_csv_row())
+    return path
+
+
+def write_phase4_allocation_outputs(path: Path, outputs: tuple[ScheduleAllocationRecord, ...]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = DictWriter(handle, fieldnames=PHASE4_ALLOCATION_HEADERS)
         writer.writeheader()
         for record in outputs:
             writer.writerow(record.as_csv_row())

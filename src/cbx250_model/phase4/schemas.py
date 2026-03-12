@@ -62,7 +62,7 @@ class Phase3SchedulingInputRecord:
     notes: str
 
     @property
-    def key(self) -> tuple[str, str, str, str, int]:
+    def key(self) -> tuple[str, str, str, str, str, str, int]:
         return (
             self.scenario_name,
             self.geography_code,
@@ -139,6 +139,10 @@ class ScheduleDetailRecord:
     batch_number: str
     demand_month_index: int
     demand_calendar_month: date
+    support_start_month_index: int
+    support_start_calendar_month: date
+    support_end_month_index: int
+    support_end_calendar_month: date
     month_index: int
     calendar_month: date
     planned_start_month_index: int
@@ -146,6 +150,7 @@ class ScheduleDetailRecord:
     planned_release_month_index: int
     planned_release_month: date
     batch_quantity: float
+    allocated_support_quantity: float
     quantity_unit: str
     cumulative_released_quantity: float
     capacity_used: float
@@ -176,6 +181,10 @@ class ScheduleDetailRecord:
             "batch_number": self.batch_number,
             "demand_month_index": str(self.demand_month_index),
             "demand_calendar_month": self.demand_calendar_month.isoformat(),
+            "support_start_month_index": str(self.support_start_month_index),
+            "support_start_calendar_month": self.support_start_calendar_month.isoformat(),
+            "support_end_month_index": str(self.support_end_month_index),
+            "support_end_calendar_month": self.support_end_calendar_month.isoformat(),
             "month_index": str(self.month_index),
             "calendar_month": self.calendar_month.isoformat(),
             "planned_start_month_index": str(self.planned_start_month_index),
@@ -183,6 +192,7 @@ class ScheduleDetailRecord:
             "planned_release_month_index": str(self.planned_release_month_index),
             "planned_release_month": self.planned_release_month.isoformat(),
             "batch_quantity": _format_numeric(self.batch_quantity),
+            "allocated_support_quantity": _format_numeric(self.allocated_support_quantity),
             "quantity_unit": self.quantity_unit,
             "cumulative_released_quantity": _format_numeric(self.cumulative_released_quantity),
             "capacity_used": _format_numeric(self.capacity_used),
@@ -193,6 +203,60 @@ class ScheduleDetailRecord:
             "excess_build_flag": json.dumps(self.excess_build_flag),
             "bullwhip_review_flag": json.dumps(self.bullwhip_review_flag),
             "ss_fg_sync_flag": json.dumps(self.ss_fg_sync_flag),
+            "notes": self.notes,
+        }
+
+
+@dataclass(frozen=True)
+class ScheduleAllocationRecord:
+    scenario_name: str
+    stage: str
+    module: str
+    geography_code: str
+    allocated_module: str
+    allocated_geography_code: str
+    source_batch_number: str
+    physical_batch_quantity: float
+    quantity_unit: str
+    planned_start_month_index: int
+    planned_start_month: date
+    planned_release_month_index: int
+    planned_release_month: date
+    allocated_to_demand_month_index: int
+    allocated_to_demand_calendar_month: date
+    allocated_support_quantity: float
+    notes: str
+
+    @property
+    def key(self) -> tuple[str, str, str, str, int]:
+        return (
+            self.scenario_name,
+            self.stage,
+            self.geography_code,
+            self.source_batch_number,
+            self.allocated_geography_code,
+            self.allocated_module,
+            self.allocated_to_demand_month_index,
+        )
+
+    def as_csv_row(self) -> dict[str, str]:
+        return {
+            "scenario_name": self.scenario_name,
+            "stage": self.stage,
+            "module": self.module,
+            "geography_code": self.geography_code,
+            "allocated_module": self.allocated_module,
+            "allocated_geography_code": self.allocated_geography_code,
+            "source_batch_number": self.source_batch_number,
+            "physical_batch_quantity": _format_numeric(self.physical_batch_quantity),
+            "quantity_unit": self.quantity_unit,
+            "planned_start_month_index": str(self.planned_start_month_index),
+            "planned_start_month": self.planned_start_month.isoformat(),
+            "planned_release_month_index": str(self.planned_release_month_index),
+            "planned_release_month": self.planned_release_month.isoformat(),
+            "allocated_to_demand_month_index": str(self.allocated_to_demand_month_index),
+            "allocated_to_demand_calendar_month": self.allocated_to_demand_calendar_month.isoformat(),
+            "allocated_support_quantity": _format_numeric(self.allocated_support_quantity),
             "notes": self.notes,
         }
 

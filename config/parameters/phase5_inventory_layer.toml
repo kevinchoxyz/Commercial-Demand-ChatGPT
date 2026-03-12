@@ -16,15 +16,17 @@ sublayer1_fg_units = 0.0
 sublayer2_fg_units = 0.0
 
 [shelf_life]
-# PLACEHOLDER deterministic base-case values until approved inventory shelf-life inputs are loaded.
-ds_months = 24
-dp_months = 24
-fg_months = 24
-ss_months = 24
+# Revised deterministic base-case placeholders until approved inventory shelf-life inputs are loaded.
+# Calibrated to reduce non-actionable baseline expiry while preserving true shortage and excess signals.
+ds_months = 48
+dp_months = 36
+fg_months = 36
+ss_months = 48
 
 [policy]
-# PLACEHOLDER excess-cover threshold until approved inventory policy values are loaded.
-excess_inventory_threshold_months_of_cover = 6.0
+# Revised deterministic base-case placeholder threshold until approved inventory policy values are loaded.
+# Calibrated to reduce non-actionable baseline excess flags while preserving real inventory pressure.
+excess_inventory_threshold_months_of_cover = 18.0
 stockout_tolerance_units = 0.000001
 fefo_enabled = true
 ss_fg_match_required = true

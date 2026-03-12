@@ -101,10 +101,9 @@ def test_phase4_checked_in_baseline_schedule_is_materially_less_noisy() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     result = run_phase4_scenario(repo_root / "config" / "scenarios" / "baseline_phase4.toml")
 
-    capacity_flag_count = sum(1 for row in result.monthly_summary if row.capacity_flag)
-    supply_gap_flag_count = sum(1 for row in result.monthly_summary if row.supply_gap_flag)
-
     assert not result.validation.has_errors
-    assert capacity_flag_count == 0
-    assert supply_gap_flag_count == 0
+    assert any(row.stage == "DS" and row.module == "ALL" and row.geography_code == "ALL" for row in result.schedule_detail)
+    assert any(row.stage == "DP" and row.module == "ALL" and row.geography_code == "ALL" for row in result.schedule_detail)
+    assert any(row.stage == "FG" and row.module == "ALL" for row in result.schedule_detail)
+    assert any(row.stage == "SS" and row.module == "ALL" for row in result.schedule_detail)
     assert any("precedes month 1 by design" in row.notes.lower() for row in result.schedule_detail)

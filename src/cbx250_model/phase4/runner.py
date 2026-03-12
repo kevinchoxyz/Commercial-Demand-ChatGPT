@@ -15,7 +15,11 @@ from .loaders import Phase4InputBundle, load_phase4_inputs
 from .schedule import build_phase4_outputs
 from .summary import build_phase4_run_summary
 from .validation import run_phase4_validations
-from .writer import write_phase4_detail_outputs, write_phase4_monthly_summary
+from .writer import (
+    write_phase4_allocation_outputs,
+    write_phase4_detail_outputs,
+    write_phase4_monthly_summary,
+)
 
 
 @dataclass(frozen=True)
@@ -24,13 +28,17 @@ class Phase4RunResult:
     inputs: Phase4InputBundle
     schedule_detail: tuple
     monthly_summary: tuple
+    allocation_detail: tuple
     validation: ValidationReport
 
 
 def run_phase4_scenario(scenario_path: str | Path) -> Phase4RunResult:
     config = load_phase4_config(Path(scenario_path))
     inputs = load_phase4_inputs(config)
-    schedule_detail, monthly_summary = build_phase4_outputs(config, inputs.scheduling_signals)
+    schedule_detail, monthly_summary, allocation_detail = build_phase4_outputs(
+        config,
+        inputs.scheduling_signals,
+    )
     validation = run_phase4_validations(
         config,
         inputs.phase3_trade_layer,
@@ -42,6 +50,7 @@ def run_phase4_scenario(scenario_path: str | Path) -> Phase4RunResult:
         inputs=inputs,
         schedule_detail=schedule_detail,
         monthly_summary=monthly_summary,
+        allocation_detail=allocation_detail,
         validation=validation,
     )
 
@@ -64,12 +73,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         result.config.output_paths.monthly_summary,
         result.monthly_summary,
     )
+    allocation_output_path = write_phase4_allocation_outputs(
+        result.config.output_paths.schedule_detail.with_name(
+            result.config.output_paths.schedule_detail.name.replace(
+                "_schedule_detail.csv",
+                "_allocation_detail.csv",
+            )
+            if result.config.output_paths.schedule_detail.name.endswith("_schedule_detail.csv")
+            else "phase4_allocation_detail.csv"
+        ),
+        result.allocation_detail,
+    )
     print(
         json.dumps(
             build_phase4_run_summary(
                 result,
                 str(detail_output_path),
                 str(monthly_summary_path),
+                str(allocation_output_path),
             ),
             indent=2,
         )

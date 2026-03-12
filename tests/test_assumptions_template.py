@@ -261,10 +261,12 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
     assert "50000" in trade_row
     assert "500000" in trade_row
     assert "100000" in trade_row
-    assert "24" in trade_row
+    assert "48" in trade_row
+    assert "36" in trade_row
+    assert "18" in trade_row
     assert trade_row[-2] == "yes"
     assert trade_row[-1] == (
-        "Active deterministic defaults for Phase 3, Phase 4, and Phase 5. Edit here instead of hand-editing phase3_trade_layer.toml, phase4_production_schedule.toml, or phase5_inventory_layer.toml."
+        "Active deterministic defaults for Phase 3, Phase 4, and Phase 5. Phase 5 shelf life and excess-cover values are revised placeholder baseline assumptions; edit here instead of hand-editing phase3_trade_layer.toml, phase4_production_schedule.toml, or phase5_inventory_layer.toml."
     )
     assert _cell_formula(output_path, sheet_map["Dosing_Assumptions"], "A2") == (
         'IF(Scenario_Controls!$A$2="","",Scenario_Controls!$A$2)'

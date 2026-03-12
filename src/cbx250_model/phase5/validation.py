@@ -93,43 +93,44 @@ def _phase4_reconciliation_issues(
     phase4_schedule_detail: tuple[Phase4ScheduleDetailInputRecord, ...],
     phase4_monthly_summary: tuple[Phase4MonthlySummaryInputRecord, ...],
 ) -> list[ValidationIssue]:
-    aggregated_detail: dict[tuple[str, str, str, int], dict[str, float]] = defaultdict(
-        lambda: {"FG": 0.0, "DP": 0.0, "DS": 0.0, "SS": 0.0}
-    )
+    aggregated_detail: dict[tuple[str, str], float] = defaultdict(float)
+    aggregated_summary: dict[tuple[str, str], float] = defaultdict(float)
     for record in phase4_schedule_detail:
-        aggregated_detail[
+        if record.stage == "FG":
+            aggregated_detail[
+                (
+                    record.scenario_name,
+                    record.geography_code,
+                )
+            ] += record.allocated_support_quantity
+
+    for summary in phase4_monthly_summary:
+        aggregated_summary[
             (
-                record.scenario_name,
-                record.geography_code,
-                record.module,
-                record.demand_month_index,
+                summary.scenario_name,
+                summary.geography_code,
             )
-        ][record.stage] += record.batch_quantity
+        ] += summary.fg_release_units
 
     issues: list[ValidationIssue] = []
     tolerance = config.validation.reconciliation_tolerance_units
-    for summary in phase4_monthly_summary:
-        key = (summary.scenario_name, summary.geography_code, summary.module, summary.month_index)
-        detail_totals = aggregated_detail[key]
-        comparisons = {
-            "FG": (detail_totals["FG"], summary.fg_release_units),
-        }
-        for stage, (detail_value, summary_value) in comparisons.items():
-            if abs(detail_value - summary_value) > tolerance:
-                issues.append(
-                    ValidationIssue(
-                        code="PHASE5_PHASE4_RECONCILIATION_MISMATCH",
-                        message=(
-                            f"Phase 4 detail releases for stage {stage} do not reconcile to the Phase 4 monthly summary."
-                        ),
-                        context={
-                            "geography_code": summary.geography_code,
-                            "module": summary.module,
-                            "month_index": str(summary.month_index),
-                            "stage": stage,
-                        },
-                    )
+    for key, summary_value in aggregated_summary.items():
+        detail_value = aggregated_detail[key]
+        if abs(detail_value - summary_value) > tolerance:
+            issues.append(
+                ValidationIssue(
+                    code="PHASE5_PHASE4_RECONCILIATION_MISMATCH",
+                    message=(
+                        "Phase 4 allocated FG support quantities do not reconcile to the Phase 4 monthly summary."
+                    ),
+                    context={
+                        "scenario_name": key[0],
+                        "geography_code": key[1],
+                        "module": "ALL",
+                        "stage": "FG",
+                    },
                 )
+            )
     return issues
 
 

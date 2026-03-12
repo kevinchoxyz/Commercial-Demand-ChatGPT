@@ -138,7 +138,11 @@ def test_import_model_assumptions_workbook_happy_path_generates_artifacts_and_ph
     assert phase4_config.ds.max_batch_size_kg == 4.0
     phase5_config = load_phase5_config(result.file_paths["generated_phase5_scenario"])
     assert phase5_config.starting_inventory.fg_units == 0.0
-    assert phase5_config.shelf_life.fg_months == 24
+    assert phase5_config.shelf_life.ds_months == 48
+    assert phase5_config.shelf_life.dp_months == 36
+    assert phase5_config.shelf_life.fg_months == 36
+    assert phase5_config.shelf_life.ss_months == 48
+    assert phase5_config.policy.excess_inventory_threshold_months_of_cover == 18.0
     assert phase5_config.policy.fefo_enabled is True
     assert phase5_config.validation.reconcile_phase4_receipts is True
 
