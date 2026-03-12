@@ -32,6 +32,13 @@ from .phase5.writer import (
     write_phase5_inventory_detail,
     write_phase5_monthly_summary,
 )
+from .phase6.runner import Phase6RunResult, run_phase6_scenario
+from .phase6.summary import build_phase6_run_summary
+from .phase6.writer import (
+    write_phase6_annual_summary,
+    write_phase6_financial_detail,
+    write_phase6_monthly_summary,
+)
 
 
 @dataclass(frozen=True)
@@ -49,20 +56,27 @@ class ForecastWorkflowResult:
     generated_phase4_scenario_path: Path | None
     phase5_template_path: Path | None
     generated_phase5_scenario_path: Path | None
+    phase6_template_path: Path | None
+    generated_phase6_scenario_path: Path | None
     phase1_monthlyized_output_path: Path
     phase2_output_path: Path
     phase3_output_path: Path | None
     phase4_schedule_detail_path: Path | None
+    phase4_allocation_detail_path: Path | None
     phase4_monthly_summary_path: Path | None
     phase5_inventory_detail_path: Path | None
     phase5_monthly_summary_path: Path | None
     phase5_cohort_audit_path: Path | None
+    phase6_financial_detail_path: Path | None
+    phase6_monthly_financial_summary_path: Path | None
+    phase6_annual_financial_summary_path: Path | None
     assumptions_result: AssumptionsImportResult | None
     import_result: WorkbookImportResult
     phase2_result: Phase2RunResult
     phase3_result: Phase3RunResult | None
     phase4_result: Phase4RunResult | None
     phase5_result: Phase5RunResult | None
+    phase6_result: Phase6RunResult | None
     summary: dict[str, object]
 
 
@@ -75,11 +89,13 @@ def run_forecast_workflow(
     phase3_scenario: str | Path | None = None,
     phase4_scenario: str | Path | None = None,
     phase5_scenario: str | Path | None = None,
+    phase6_scenario: str | Path | None = None,
     output_dir: str | Path | None = None,
     overwrite: bool = False,
     run_phase3: bool = False,
     run_phase4: bool = False,
     run_phase5: bool = False,
+    run_phase6: bool = False,
 ) -> ForecastWorkflowResult:
     repo_root = Path(__file__).resolve().parents[2]
     resolved_workbook_path = Path(workbook_path).resolve()
@@ -103,7 +119,8 @@ def run_forecast_workflow(
     )
     _validate_output_dir_state(resolved_output_dir, overwrite=overwrite)
 
-    effective_run_phase5 = run_phase5
+    effective_run_phase6 = run_phase6
+    effective_run_phase5 = run_phase5 or effective_run_phase6
     effective_run_phase4 = run_phase4 or effective_run_phase5
     effective_run_phase3 = run_phase3 or effective_run_phase4
 
@@ -127,6 +144,10 @@ def run_forecast_workflow(
             workflow_warnings.append(
                 f"assumptions_workbook was provided, so phase5_scenario {Path(phase5_scenario).resolve()} was ignored."
             )
+        if effective_run_phase6 and phase6_scenario is not None:
+            workflow_warnings.append(
+                f"assumptions_workbook was provided, so phase6_scenario {Path(phase6_scenario).resolve()} was ignored."
+            )
         assumptions_output_dir = (resolved_output_dir / "assumptions").resolve()
         assumptions_result = _run_assumptions_import_step(
             workbook_path=resolved_assumptions_workbook_path,
@@ -144,6 +165,10 @@ def run_forecast_workflow(
     if phase5_scenario is not None and not effective_run_phase5:
         workflow_warnings.append(
             f"phase5_scenario {Path(phase5_scenario).resolve()} was ignored because run_phase5 was not enabled."
+        )
+    if phase6_scenario is not None and not effective_run_phase6:
+        workflow_warnings.append(
+            f"phase6_scenario {Path(phase6_scenario).resolve()} was ignored because run_phase6 was not enabled."
         )
 
     import_result = _run_import_step(
@@ -202,6 +227,7 @@ def run_forecast_workflow(
     generated_phase4_scenario_path: Path | None = None
     phase4_result: Phase4RunResult | None = None
     phase4_schedule_detail_path: Path | None = None
+    phase4_allocation_detail_path: Path | None = None
     phase4_monthly_summary_path: Path | None = None
     phase5_template_path: Path | None = None
     generated_phase5_scenario_path: Path | None = None
@@ -209,6 +235,12 @@ def run_forecast_workflow(
     phase5_inventory_detail_path: Path | None = None
     phase5_monthly_summary_path: Path | None = None
     phase5_cohort_audit_path: Path | None = None
+    phase6_template_path: Path | None = None
+    generated_phase6_scenario_path: Path | None = None
+    phase6_result: Phase6RunResult | None = None
+    phase6_financial_detail_path: Path | None = None
+    phase6_monthly_financial_summary_path: Path | None = None
+    phase6_annual_financial_summary_path: Path | None = None
     if effective_run_phase3:
         phase3_template_path = _resolve_phase3_template_path(
             repo_root=repo_root,
@@ -256,7 +288,7 @@ def run_forecast_workflow(
             phase4_result.config.output_paths.schedule_detail,
             phase4_result.schedule_detail,
         )
-        write_phase4_allocation_outputs(
+        phase4_allocation_detail_path = write_phase4_allocation_outputs(
             _derive_phase4_allocation_path(phase4_schedule_detail_path),
             phase4_result.allocation_detail,
         )
@@ -300,6 +332,42 @@ def run_forecast_workflow(
             phase5_result.config.output_paths.cohort_audit,
             phase5_result.cohort_audit,
         )
+    if effective_run_phase6:
+        if phase4_monthly_summary_path is None or phase5_inventory_detail_path is None or phase5_monthly_summary_path is None:
+            raise ValueError(
+                "Phase 6 requires valid Phase 4 and Phase 5 outputs, but one or more upstream phases did not complete."
+            )
+        phase6_template_path = _resolve_phase6_template_path(
+            repo_root=repo_root,
+            assumptions_result=assumptions_result,
+            phase6_scenario=phase6_scenario,
+        )
+        if not phase6_template_path.exists() or not phase6_template_path.is_file():
+            raise FileNotFoundError(f"Phase 6 scenario template not found: {phase6_template_path}")
+        generated_phase6_scenario_path = _write_generated_phase6_scenario(
+            template_scenario_path=phase6_template_path,
+            output_dir=resolved_output_dir,
+            scenario_name=import_result.context.scenario_name,
+            phase4_monthly_summary_path=phase4_monthly_summary_path,
+            phase5_inventory_detail_path=phase5_inventory_detail_path,
+            phase5_monthly_inventory_summary_path=phase5_monthly_summary_path,
+        )
+        phase6_result = run_phase6_scenario(generated_phase6_scenario_path)
+        if phase6_result.validation.has_errors:
+            rendered_report = format_validation_report(phase6_result.validation)
+            raise ValueError(f"Phase 6 validation failed.\n{rendered_report}")
+        phase6_financial_detail_path = write_phase6_financial_detail(
+            phase6_result.config.output_paths.financial_detail,
+            phase6_result.financial_detail,
+        )
+        phase6_monthly_financial_summary_path = write_phase6_monthly_summary(
+            phase6_result.config.output_paths.monthly_financial_summary,
+            phase6_result.monthly_summary,
+        )
+        phase6_annual_financial_summary_path = write_phase6_annual_summary(
+            phase6_result.config.output_paths.annual_financial_summary,
+            phase6_result.annual_summary,
+        )
     summary = build_workflow_summary(
         assumptions_result=assumptions_result,
         import_result=import_result,
@@ -313,6 +381,7 @@ def run_forecast_workflow(
         generated_phase3_scenario_path=generated_phase3_scenario_path,
         phase4_result=phase4_result,
         phase4_schedule_detail_path=phase4_schedule_detail_path,
+        phase4_allocation_detail_path=phase4_allocation_detail_path,
         phase4_monthly_summary_path=phase4_monthly_summary_path,
         phase4_template_path=phase4_template_path,
         generated_phase4_scenario_path=generated_phase4_scenario_path,
@@ -322,6 +391,12 @@ def run_forecast_workflow(
         phase5_cohort_audit_path=phase5_cohort_audit_path,
         phase5_template_path=phase5_template_path,
         generated_phase5_scenario_path=generated_phase5_scenario_path,
+        phase6_result=phase6_result,
+        phase6_financial_detail_path=phase6_financial_detail_path,
+        phase6_monthly_financial_summary_path=phase6_monthly_financial_summary_path,
+        phase6_annual_financial_summary_path=phase6_annual_financial_summary_path,
+        phase6_template_path=phase6_template_path,
+        generated_phase6_scenario_path=generated_phase6_scenario_path,
         workflow_warnings=tuple(workflow_warnings),
     )
     return ForecastWorkflowResult(
@@ -338,20 +413,27 @@ def run_forecast_workflow(
         generated_phase4_scenario_path=generated_phase4_scenario_path,
         phase5_template_path=phase5_template_path,
         generated_phase5_scenario_path=generated_phase5_scenario_path,
+        phase6_template_path=phase6_template_path,
+        generated_phase6_scenario_path=generated_phase6_scenario_path,
         phase1_monthlyized_output_path=monthlyized_output_path,
         phase2_output_path=phase2_output_path,
         phase3_output_path=phase3_output_path,
         phase4_schedule_detail_path=phase4_schedule_detail_path,
+        phase4_allocation_detail_path=phase4_allocation_detail_path,
         phase4_monthly_summary_path=phase4_monthly_summary_path,
         phase5_inventory_detail_path=phase5_inventory_detail_path,
         phase5_monthly_summary_path=phase5_monthly_summary_path,
         phase5_cohort_audit_path=phase5_cohort_audit_path,
+        phase6_financial_detail_path=phase6_financial_detail_path,
+        phase6_monthly_financial_summary_path=phase6_monthly_financial_summary_path,
+        phase6_annual_financial_summary_path=phase6_annual_financial_summary_path,
         assumptions_result=assumptions_result,
         import_result=import_result,
         phase2_result=phase2_result,
         phase3_result=phase3_result,
         phase4_result=phase4_result,
         phase5_result=phase5_result,
+        phase6_result=phase6_result,
         summary=summary,
     )
 
@@ -370,6 +452,7 @@ def build_workflow_summary(
     generated_phase3_scenario_path: Path | None,
     phase4_result: Phase4RunResult | None,
     phase4_schedule_detail_path: Path | None,
+    phase4_allocation_detail_path: Path | None,
     phase4_monthly_summary_path: Path | None,
     phase4_template_path: Path | None,
     generated_phase4_scenario_path: Path | None,
@@ -379,6 +462,12 @@ def build_workflow_summary(
     phase5_cohort_audit_path: Path | None,
     phase5_template_path: Path | None,
     generated_phase5_scenario_path: Path | None,
+    phase6_result: Phase6RunResult | None,
+    phase6_financial_detail_path: Path | None,
+    phase6_monthly_financial_summary_path: Path | None,
+    phase6_annual_financial_summary_path: Path | None,
+    phase6_template_path: Path | None,
+    generated_phase6_scenario_path: Path | None,
     workflow_warnings: tuple[str, ...],
 ) -> dict[str, object]:
     phase2_summary = build_phase2_run_summary(phase2_result, str(phase2_output_path))
@@ -399,9 +488,11 @@ def build_workflow_summary(
     if (
         phase4_result is not None
         and phase4_schedule_detail_path is not None
+        and phase4_allocation_detail_path is not None
         and phase4_monthly_summary_path is not None
     ):
         authoritative_output_files["phase4_schedule_detail"] = str(phase4_schedule_detail_path)
+        authoritative_output_files["phase4_allocation_detail"] = str(phase4_allocation_detail_path)
         authoritative_output_files["phase4_monthly_summary"] = str(phase4_monthly_summary_path)
         phase4_summary = build_phase4_run_summary(
             phase4_result,
@@ -436,6 +527,8 @@ def build_workflow_summary(
             "generated_phase4_parameters": str(assumptions_result.file_paths["generated_phase4_parameters"]),
             "generated_phase5_scenario": str(assumptions_result.file_paths["generated_phase5_scenario"]),
             "generated_phase5_parameters": str(assumptions_result.file_paths["generated_phase5_parameters"]),
+            "generated_phase6_scenario": str(assumptions_result.file_paths["generated_phase6_scenario"]),
+            "generated_phase6_parameters": str(assumptions_result.file_paths["generated_phase6_parameters"]),
             "treatment_duration_assumptions": str(
                 assumptions_result.file_paths["treatment_duration_assumptions"]
             ),
@@ -507,6 +600,7 @@ def build_workflow_summary(
                 "phase4_bullwhip_review_row_count": phase4_summary["bullwhip_review_row_count"],
                 "phase4_validation_issue_count": phase4_summary["validation_issue_count"],
                 "phase4_schedule_detail_file": phase4_summary["authoritative_schedule_detail_file"],
+                "phase4_allocation_detail_file": str(phase4_allocation_detail_path),
                 "phase4_monthly_summary_file": phase4_summary["authoritative_monthly_summary_file"],
                 "phase4_parameter_source": (
                     "assumptions_workbook" if assumptions_result is not None else "phase4_scenario_template"
@@ -568,6 +662,70 @@ def build_workflow_summary(
         )
     else:
         summary["phase5_ran"] = False
+    phase6_summary: dict[str, object] | None = None
+    if (
+        phase6_result is not None
+        and phase6_financial_detail_path is not None
+        and phase6_monthly_financial_summary_path is not None
+        and phase6_annual_financial_summary_path is not None
+    ):
+        authoritative_output_files["phase6_financial_detail"] = str(phase6_financial_detail_path)
+        authoritative_output_files["phase6_monthly_financial_summary"] = str(
+            phase6_monthly_financial_summary_path
+        )
+        authoritative_output_files["phase6_annual_financial_summary"] = str(
+            phase6_annual_financial_summary_path
+        )
+        phase6_summary = build_phase6_run_summary(
+            phase6_result,
+            str(phase6_financial_detail_path),
+            str(phase6_monthly_financial_summary_path),
+            str(phase6_annual_financial_summary_path),
+        )
+    if phase6_summary is not None and phase6_template_path is not None and generated_phase6_scenario_path is not None:
+        summary.update(
+            {
+                "phase6_ran": True,
+                "phase6_financial_detail_row_count": phase6_summary["financial_detail_row_count"],
+                "phase6_monthly_financial_summary_row_count": phase6_summary[
+                    "monthly_financial_summary_row_count"
+                ],
+                "phase6_annual_financial_summary_row_count": phase6_summary[
+                    "annual_financial_summary_row_count"
+                ],
+                "total_inventory_value": phase6_summary["ending_total_inventory_value"],
+                "total_expired_writeoff_value": phase6_summary["total_expired_value"],
+                "total_carrying_cost": phase6_summary["total_carrying_cost"],
+                "total_shipping_cold_chain_cost": phase6_summary["total_shipping_cold_chain_cost"],
+                "total_fg_shipping_cold_chain_cost": phase6_summary["total_fg_shipping_cold_chain_cost"],
+                "total_ss_shipping_cold_chain_cost": phase6_summary["total_ss_shipping_cold_chain_cost"],
+                "total_us_shipping_cold_chain_cost": phase6_summary["total_us_shipping_cold_chain_cost"],
+                "total_eu_shipping_cold_chain_cost": phase6_summary["total_eu_shipping_cold_chain_cost"],
+                "ending_matched_administrable_fg_value": phase6_summary[
+                    "ending_matched_administrable_fg_value"
+                ],
+                "phase6_validation_issue_count": phase6_summary["validation_issue_count"],
+                "phase6_financial_detail_file": phase6_summary["authoritative_financial_detail_file"],
+                "phase6_monthly_financial_summary_file": phase6_summary[
+                    "authoritative_monthly_financial_summary_file"
+                ],
+                "phase6_annual_financial_summary_file": phase6_summary[
+                    "authoritative_annual_financial_summary_file"
+                ],
+                "carrying_cost_exceeds_ending_inventory_value": phase6_summary[
+                    "carrying_cost_exceeds_ending_inventory_value"
+                ],
+                "carrying_cost_interpretation_note": phase6_summary["carrying_cost_interpretation_note"],
+                "phase6_parameter_source": (
+                    "assumptions_workbook" if assumptions_result is not None else "phase6_scenario_template"
+                ),
+                "phase6_parameter_template_used": str(phase6_template_path),
+                "phase6_parameter_config_used": str(phase6_result.config.parameter_config_path),
+                "generated_phase6_scenario": str(generated_phase6_scenario_path),
+            }
+        )
+    else:
+        summary["phase6_ran"] = False
     return summary
 
 
@@ -678,6 +836,19 @@ def _resolve_phase5_template_path(
     if phase5_scenario is not None:
         return Path(phase5_scenario).resolve()
     return (repo_root / "config" / "scenarios" / "base_phase5.toml").resolve()
+
+
+def _resolve_phase6_template_path(
+    *,
+    repo_root: Path,
+    assumptions_result: AssumptionsImportResult | None,
+    phase6_scenario: str | Path | None,
+) -> Path:
+    if assumptions_result is not None:
+        return assumptions_result.file_paths["generated_phase6_scenario"].resolve()
+    if phase6_scenario is not None:
+        return Path(phase6_scenario).resolve()
+    return (repo_root / "config" / "scenarios" / "base_phase6.toml").resolve()
 
 
 def _write_generated_phase2_scenario(
@@ -887,6 +1058,68 @@ def _write_generated_phase5_scenario(
                 f'inventory_detail = "{detail_ref}"',
                 f'monthly_inventory_summary = "{summary_ref}"',
                 f'cohort_audit = "{cohort_ref}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return generated_scenario_path
+
+
+def _write_generated_phase6_scenario(
+    *,
+    template_scenario_path: Path,
+    output_dir: Path,
+    scenario_name: str,
+    phase4_monthly_summary_path: Path,
+    phase5_inventory_detail_path: Path,
+    phase5_monthly_inventory_summary_path: Path,
+) -> Path:
+    template_data = _load_toml(template_scenario_path)
+    raw_parameter_config = template_data.get("parameter_config")
+    if not isinstance(raw_parameter_config, str) or not raw_parameter_config.strip():
+        raise ValueError(
+            f"Phase 6 scenario template {template_scenario_path} is missing parameter_config."
+        )
+
+    parameter_config_path = _resolve_relative_path(
+        base_dir=template_scenario_path.parent,
+        raw_path=raw_parameter_config,
+    )
+    if not parameter_config_path.exists():
+        raise FileNotFoundError(
+            f"Phase 6 parameter_config referenced by template does not exist: {parameter_config_path}"
+        )
+
+    generated_scenario_path = output_dir / "generated_phase6_scenario.toml"
+    financial_detail_path = output_dir / "phase6_financial_detail.csv"
+    monthly_summary_path = output_dir / "phase6_monthly_financial_summary.csv"
+    annual_summary_path = output_dir / "phase6_annual_financial_summary.csv"
+    parameter_config_ref = _relative_path_for_toml(parameter_config_path, start=output_dir)
+    phase4_ref = _relative_path_for_toml(phase4_monthly_summary_path, start=output_dir)
+    phase5_detail_ref = _relative_path_for_toml(phase5_inventory_detail_path, start=output_dir)
+    phase5_summary_ref = _relative_path_for_toml(phase5_monthly_inventory_summary_path, start=output_dir)
+    detail_ref = _relative_path_for_toml(financial_detail_path, start=output_dir)
+    monthly_ref = _relative_path_for_toml(monthly_summary_path, start=output_dir)
+    annual_ref = _relative_path_for_toml(annual_summary_path, start=output_dir)
+
+    generated_scenario_path.write_text(
+        "\n".join(
+            [
+                "# GENERATED BY scripts/run_forecast_workflow.py",
+                "# Thin orchestration layer around workbook import plus deterministic Phases 2 to 6.",
+                f'scenario_name = "{scenario_name}"',
+                f'parameter_config = "{parameter_config_ref}"',
+                "",
+                "[inputs]",
+                f'phase4_monthly_summary = "{phase4_ref}"',
+                f'phase5_inventory_detail = "{phase5_detail_ref}"',
+                f'phase5_monthly_inventory_summary = "{phase5_summary_ref}"',
+                "",
+                "[outputs]",
+                f'financial_detail = "{detail_ref}"',
+                f'monthly_financial_summary = "{monthly_ref}"',
+                f'annual_financial_summary = "{annual_ref}"',
                 "",
             ]
         ),

@@ -14,6 +14,7 @@ from cbx250_model.phase2.config_schema import load_phase2_config
 from cbx250_model.phase3.config_schema import load_phase3_config
 from cbx250_model.phase4.config_schema import load_phase4_config
 from cbx250_model.phase5.config_schema import load_phase5_config
+from cbx250_model.phase6.config_schema import load_phase6_config
 
 MAIN_NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 MAIN_NS_URI = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -82,6 +83,27 @@ def _set_cell(workbook_path: Path, sheet_name: str, cell_ref: str, value: str | 
     )
 
 
+def _rewrite_trade_future_hooks_as_legacy_header(workbook_path: Path) -> None:
+    worksheet_path = _sheet_path_map(workbook_path)["Trade_Inventory_FutureHooks"]
+    legacy_header_count = 74
+    with zipfile.ZipFile(workbook_path) as zf:
+        worksheet = ET.fromstring(zf.read(worksheet_path))
+
+    for row in worksheet.findall(".//a:sheetData/a:row", MAIN_NS):
+        row_number = int(row.attrib["r"])
+        if row_number > 22:
+            continue
+        cells = row.findall("a:c", MAIN_NS)
+        for cell in cells[legacy_header_count:]:
+            row.remove(cell)
+
+    _replace_zip_entry(
+        workbook_path,
+        worksheet_path,
+        ET.tostring(worksheet, encoding="utf-8", xml_declaration=True),
+    )
+
+
 def _read_csv(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
@@ -116,6 +138,8 @@ def test_import_model_assumptions_workbook_happy_path_generates_artifacts_and_ph
     assert result.file_paths["generated_phase4_scenario"].exists()
     assert result.file_paths["generated_phase5_parameters"].exists()
     assert result.file_paths["generated_phase5_scenario"].exists()
+    assert result.file_paths["generated_phase6_parameters"].exists()
+    assert result.file_paths["generated_phase6_scenario"].exists()
     assert result.file_paths["treatment_duration_assumptions"].exists()
 
     config = load_phase2_config(result.file_paths["generated_phase2_scenario"])
@@ -145,6 +169,16 @@ def test_import_model_assumptions_workbook_happy_path_generates_artifacts_and_ph
     assert phase5_config.policy.excess_inventory_threshold_months_of_cover == 18.0
     assert phase5_config.policy.fefo_enabled is True
     assert phase5_config.validation.reconcile_phase4_receipts is True
+    phase6_config = load_phase6_config(result.file_paths["generated_phase6_scenario"])
+    assert phase6_config.cost_basis.ds_standard_cost_basis_unit == "mg"
+    assert phase6_config.cost_basis.ds_standard_cost_per_mg == 0.002
+    assert phase6_config.carrying_cost.annual_inventory_carry_rate == 0.2
+    assert phase6_config.valuation_policy.include_trade_node_fg_value is True
+    assert phase6_config.shipping_cold_chain.us_fg_sub1_to_sub2_cost_per_unit == 25.0
+    assert phase6_config.shipping_cold_chain.eu_fg_sub1_to_sub2_cost_per_unit == 57.5
+    assert phase6_config.shipping_cold_chain.us_ss_sub1_to_sub2_cost_per_unit == 25.0
+    assert phase6_config.shipping_cold_chain.eu_ss_sub1_to_sub2_cost_per_unit == 57.5
+    assert phase6_config.validation.reconciliation_tolerance_value == 0.000001
 
     summary = json.loads(result.file_paths["import_summary"].read_text(encoding="utf-8"))
     assert "Scenario_Controls.demand_basis and Treatment_Duration_Assumptions -> Phase 1 starts-based treated census build when demand_basis=patient_starts." in summary["wired_into_current_engine"]
@@ -152,7 +186,8 @@ def test_import_model_assumptions_workbook_happy_path_generates_artifacts_and_ph
     assert "Trade_Inventory_FutureHooks scenario_default / geography_default / launch_event rows -> active deterministic Phase 3 config generation" in summary["wired_into_current_engine"]
     assert "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 4 config generation" in summary["wired_into_current_engine"]
     assert "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 5 config generation" in summary["wired_into_current_engine"]
-    assert "Broader future-phase execution, financial, and Monte Carlo logic remains deferred even though the assumptions workbook now feeds the active deterministic Phase 3, Phase 4, and Phase 5 configs." in summary["future_ready_only"]
+    assert "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 6 config generation" in summary["wired_into_current_engine"]
+    assert "Broader future-phase revenue, Monte Carlo, and optimization logic remains deferred even though the assumptions workbook now feeds the active deterministic Phase 3, Phase 4, Phase 5, and Phase 6 configs." in summary["future_ready_only"]
 
 
 def test_import_model_assumptions_workbook_missing_required_field_fails_with_context(
@@ -309,3 +344,38 @@ def test_import_model_assumptions_workbook_missing_required_active_phase4_phase5
 
     with pytest.raises(ValueError, match="bullwhip_amplification_threshold"):
         import_model_assumptions_workbook(workbook_path)
+
+
+def test_import_model_assumptions_workbook_missing_required_active_phase6_trade_value_fails(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Model_Assumptions_Template.xlsx"
+
+    build_model_assumptions_template(workbook_path)
+    _set_cell(workbook_path, "Trade_Inventory_FutureHooks", "BW2", "")
+
+    with pytest.raises(ValueError, match="ds_standard_cost_basis_unit"):
+        import_model_assumptions_workbook(workbook_path)
+
+
+def test_import_model_assumptions_workbook_legacy_trade_header_uses_explicit_phase6_defaults_with_warning(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "CBX250_Model_Assumptions_Template.xlsx"
+    output_dir = tmp_path / "assumptions"
+
+    build_model_assumptions_template(workbook_path)
+    _rewrite_trade_future_hooks_as_legacy_header(workbook_path)
+
+    result = import_model_assumptions_workbook(workbook_path, output_dir=output_dir)
+    phase6_config = load_phase6_config(result.file_paths["generated_phase6_scenario"])
+
+    assert any(
+        "Phase 6 workbook fields were not present" in warning
+        and "eu_fg_sub1_to_sub2_cost_per_unit" in warning
+        for warning in result.warnings
+    )
+    assert phase6_config.shipping_cold_chain.us_fg_sub1_to_sub2_cost_per_unit == 25.0
+    assert phase6_config.shipping_cold_chain.eu_fg_sub1_to_sub2_cost_per_unit == 57.5
+    assert phase6_config.shipping_cold_chain.us_ss_sub1_to_sub2_cost_per_unit == 25.0
+    assert phase6_config.shipping_cold_chain.eu_ss_sub1_to_sub2_cost_per_unit == 57.5

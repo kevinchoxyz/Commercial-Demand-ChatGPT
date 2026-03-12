@@ -22,6 +22,8 @@ FG_CENTRAL_NODE = "FG_Central"
 SS_CENTRAL_NODE = "SS_Central"
 SUBLAYER1_NODE = "SubLayer1_FG"
 SUBLAYER2_NODE = "SubLayer2_FG"
+FG_SHIPPING_NODE = "FG_Sub1_to_Sub2_Shipping"
+SS_SHIPPING_NODE = "SS_Sub1_to_Sub2_Shipping"
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,20 @@ class StandardCostModel:
             * (1.0 - self.config.expiry_writeoff.expired_inventory_salvage_rate)
         )
 
+    @staticmethod
+    def shipping_geography_bucket(geography_code: str) -> str:
+        return "US" if geography_code.upper() == "US" else "EU"
+
+    def fg_shipping_cold_chain_cost_per_unit(self, geography_code: str) -> float:
+        if self.shipping_geography_bucket(geography_code) == "US":
+            return self.config.shipping_cold_chain.us_fg_sub1_to_sub2_cost_per_unit
+        return self.config.shipping_cold_chain.eu_fg_sub1_to_sub2_cost_per_unit
+
+    def ss_shipping_cold_chain_cost_per_unit(self, geography_code: str) -> float:
+        if self.shipping_geography_bucket(geography_code) == "US":
+            return self.config.shipping_cold_chain.us_ss_sub1_to_sub2_cost_per_unit
+        return self.config.shipping_cold_chain.eu_ss_sub1_to_sub2_cost_per_unit
+
 
 def build_phase6_outputs(
     config: Phase6Config,
@@ -82,7 +98,12 @@ def build_phase6_outputs(
 ]:
     cost_model = StandardCostModel(config)
     detail_records = _build_detail_records(cost_model, phase4_monthly_summary, phase5_inventory_detail)
-    monthly_summary = _build_monthly_summary(cost_model, phase4_monthly_summary, phase5_monthly_summary)
+    monthly_summary = _build_monthly_summary(
+        cost_model,
+        phase4_monthly_summary,
+        phase5_inventory_detail,
+        phase5_monthly_summary,
+    )
     annual_summary = _build_annual_summary(monthly_summary)
     return tuple(detail_records), tuple(monthly_summary), tuple(annual_summary)
 
@@ -111,12 +132,14 @@ def _build_detail_records(
         fg_cost_rate = cost_model.fg_standard_cost_per_unit(row.geography_code)
         matched_value = (
             row.matched_administrable_fg_units * fg_cost_rate
-            if row.material_node == FG_CENTRAL_NODE and cost_model.config.valuation_policy.use_matched_administrable_fg_value
+            if row.material_node == FG_CENTRAL_NODE
+            and cost_model.config.valuation_policy.use_matched_administrable_fg_value
             else 0.0
         )
         unmatched_value = (
             row.fg_ss_mismatch_units * fg_cost_rate
-            if row.material_node == FG_CENTRAL_NODE and cost_model.config.valuation_policy.value_unmatched_fg_at_fg_standard_cost
+            if row.material_node == FG_CENTRAL_NODE
+            and cost_model.config.valuation_policy.value_unmatched_fg_at_fg_standard_cost
             else 0.0
         )
         records.append(
@@ -130,6 +153,9 @@ def _build_detail_records(
                 quantity_basis="mg" if row.material_node == DS_NODE else "units",
                 quantity_value=row.available_nonexpired_inventory,
                 standard_cost_rate=standard_cost_rate,
+                shipment_quantity_basis_units=0.0,
+                shipping_cold_chain_cost_rate=0.0,
+                shipping_cold_chain_cost_value=0.0,
                 inventory_value=inventory_value,
                 release_value=0.0,
                 expired_value=expired_value,
@@ -142,6 +168,66 @@ def _build_detail_records(
                 ),
             )
         )
+        if row.material_node == SUBLAYER1_NODE:
+            shipping_bucket = cost_model.shipping_geography_bucket(row.geography_code)
+            fg_shipment_units = row.issues
+            fg_shipping_rate = cost_model.fg_shipping_cold_chain_cost_per_unit(row.geography_code)
+            records.append(
+                FinancialDetailRecord(
+                    scenario_name=row.scenario_name,
+                    geography_code=row.geography_code,
+                    module=row.module,
+                    month_index=row.month_index,
+                    calendar_month=row.calendar_month,
+                    financial_node_or_stage=FG_SHIPPING_NODE,
+                    quantity_basis="units_shipped",
+                    quantity_value=fg_shipment_units,
+                    standard_cost_rate=0.0,
+                    shipment_quantity_basis_units=fg_shipment_units,
+                    shipping_cold_chain_cost_rate=fg_shipping_rate,
+                    shipping_cold_chain_cost_value=fg_shipment_units * fg_shipping_rate,
+                    inventory_value=0.0,
+                    release_value=0.0,
+                    expired_value=0.0,
+                    carrying_cost_value=0.0,
+                    matched_administrable_fg_value=0.0,
+                    unmatched_fg_value_at_risk=0.0,
+                    notes=_join_notes(
+                        row.notes,
+                        "Shipping/cold-chain cost is applied once to actual Sub-Layer 1 -> Sub-Layer 2 FG shipment units.",
+                        f"shipping_geography_bucket={shipping_bucket}",
+                    ),
+                )
+            )
+            ss_shipment_units = fg_shipment_units * cost_model.config.conversion.ss_ratio_to_fg
+            ss_shipping_rate = cost_model.ss_shipping_cold_chain_cost_per_unit(row.geography_code)
+            records.append(
+                FinancialDetailRecord(
+                    scenario_name=row.scenario_name,
+                    geography_code=row.geography_code,
+                    module=row.module,
+                    month_index=row.month_index,
+                    calendar_month=row.calendar_month,
+                    financial_node_or_stage=SS_SHIPPING_NODE,
+                    quantity_basis="units_shipped",
+                    quantity_value=ss_shipment_units,
+                    standard_cost_rate=0.0,
+                    shipment_quantity_basis_units=ss_shipment_units,
+                    shipping_cold_chain_cost_rate=ss_shipping_rate,
+                    shipping_cold_chain_cost_value=ss_shipment_units * ss_shipping_rate,
+                    inventory_value=0.0,
+                    release_value=0.0,
+                    expired_value=0.0,
+                    carrying_cost_value=0.0,
+                    matched_administrable_fg_value=0.0,
+                    unmatched_fg_value_at_risk=0.0,
+                    notes=_join_notes(
+                        row.notes,
+                        "SS shipping/cold-chain cost mirrors the geography-specific Sub-Layer 1 -> Sub-Layer 2 FG shipment leg using ss_ratio_to_fg.",
+                        f"shipping_geography_bucket={shipping_bucket}",
+                    ),
+                )
+            )
 
     for row in phase4_monthly_summary:
         stage_rows = (
@@ -162,6 +248,9 @@ def _build_detail_records(
                     quantity_basis=quantity_basis,
                     quantity_value=quantity_value,
                     standard_cost_rate=standard_cost_rate,
+                    shipment_quantity_basis_units=0.0,
+                    shipping_cold_chain_cost_rate=0.0,
+                    shipping_cold_chain_cost_value=0.0,
                     inventory_value=0.0,
                     release_value=quantity_value * standard_cost_rate,
                     expired_value=0.0,
@@ -189,10 +278,14 @@ def _build_detail_records(
 def _build_monthly_summary(
     cost_model: StandardCostModel,
     phase4_monthly_summary: tuple[Phase4FinancialInputRecord, ...],
+    phase5_inventory_detail: tuple[Phase5FinancialDetailInputRecord, ...],
     phase5_monthly_summary: tuple[Phase5FinancialSummaryInputRecord, ...],
 ) -> list[FinancialMonthlySummaryRecord]:
     phase4_by_key = {row.key: row for row in phase4_monthly_summary}
     phase5_by_key = {row.key: row for row in phase5_monthly_summary}
+    phase5_detail_by_key: dict[tuple[str, str, str, int], list[Phase5FinancialDetailInputRecord]] = defaultdict(list)
+    for row in phase5_inventory_detail:
+        phase5_detail_by_key[(row.scenario_name, row.geography_code, row.module, row.month_index)].append(row)
     keys = sorted(set(phase4_by_key) | set(phase5_by_key))
 
     summaries: list[FinancialMonthlySummaryRecord] = []
@@ -242,6 +335,22 @@ def _build_monthly_summary(
             phase4_row.ss_release_units * cost_model.ss_standard_cost_per_unit if phase4_row is not None else 0.0
         )
         total_release_value = fg_release_value + ss_release_value
+
+        fg_shipping_cold_chain_cost = 0.0
+        ss_shipping_cold_chain_cost = 0.0
+        for detail_row in phase5_detail_by_key.get(key, []):
+            if detail_row.material_node != SUBLAYER1_NODE:
+                continue
+            fg_shipping_cold_chain_cost = (
+                detail_row.issues * cost_model.fg_shipping_cold_chain_cost_per_unit(geography_code)
+            )
+            ss_shipping_cold_chain_cost = (
+                detail_row.issues
+                * cost_model.config.conversion.ss_ratio_to_fg
+                * cost_model.ss_shipping_cold_chain_cost_per_unit(geography_code)
+            )
+            break
+        total_shipping_cold_chain_cost = fg_shipping_cold_chain_cost + ss_shipping_cold_chain_cost
 
         expired_ds_value = (
             phase5_row.expired_ds_mg
@@ -331,6 +440,9 @@ def _build_monthly_summary(
                 fg_release_value=fg_release_value,
                 ss_release_value=ss_release_value,
                 total_release_value=total_release_value,
+                fg_shipping_cold_chain_cost=fg_shipping_cold_chain_cost,
+                ss_shipping_cold_chain_cost=ss_shipping_cold_chain_cost,
+                total_shipping_cold_chain_cost=total_shipping_cold_chain_cost,
                 expired_ds_value=expired_ds_value,
                 expired_dp_value=expired_dp_value,
                 expired_fg_value=expired_fg_value,
@@ -351,6 +463,7 @@ def _build_monthly_summary(
                 notes=_join_notes(
                     notes,
                     "total_release_value includes FG and SS release value only to avoid DS/DP stage double counting.",
+                    "total_shipping_cold_chain_cost applies once to geography-specific Sub-Layer 1 -> Sub-Layer 2 FG shipments plus mirrored SS shipment support.",
                 ),
             )
         )
@@ -378,6 +491,7 @@ def _build_annual_summary(
                 calendar_year=key[3],
                 ending_total_inventory_value=latest_row.total_inventory_value,
                 total_release_value=sum(item.total_release_value for item in ordered_rows),
+                total_shipping_cold_chain_cost=sum(item.total_shipping_cold_chain_cost for item in ordered_rows),
                 total_expired_value=sum(item.expired_value_total for item in ordered_rows),
                 total_carrying_cost=sum(item.carrying_cost_total for item in ordered_rows),
                 ending_matched_administrable_fg_value=latest_row.matched_administrable_fg_value,
@@ -386,7 +500,10 @@ def _build_annual_summary(
                 excess_inventory_month_count=sum(1 for item in ordered_rows if item.excess_inventory_flag),
                 expiry_month_count=sum(1 for item in ordered_rows if item.expiry_flag),
                 fg_ss_mismatch_month_count=sum(1 for item in ordered_rows if item.fg_ss_mismatch_flag),
-                notes="Annual rollup uses end-of-year inventory value and summed monthly release/expiry/carrying values.",
+                notes=(
+                    "Annual rollup uses end-of-year inventory value and summed monthly "
+                    "release/expiry/carrying/shipping values."
+                ),
             )
         )
     return annual_rows

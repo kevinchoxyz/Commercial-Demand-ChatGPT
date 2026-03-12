@@ -98,7 +98,7 @@ def _build_instructions_sheet() -> SheetSpec:
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "Financials, Monte Carlo, and UI remain later-phase work. Trade_Inventory_FutureHooks now wires the active deterministic Phase 3 trade config plus the active deterministic Phase 4 scheduling and Phase 5 inventory configs.",
+                "Revenue, Monte Carlo, and UI remain later-phase work. Trade_Inventory_FutureHooks now wires the active deterministic Phase 3 trade config plus the active deterministic Phase 4 scheduling, Phase 5 inventory, and Phase 6 financial configs.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -138,11 +138,11 @@ def _build_instructions_sheet() -> SheetSpec:
         (
             CellSpec("Current engine wiring", LABEL_STYLE_ID),
             CellSpec(
-                "The importer generates machine-readable CSV artifacts plus generated_phase2_parameters.toml / generated_phase2_scenario.toml, generated_phase3_parameters.toml / generated_phase3_scenario.toml, generated_phase4_parameters.toml / generated_phase4_scenario.toml, and generated_phase5_parameters.toml / generated_phase5_scenario.toml.",
+                "The importer generates machine-readable CSV artifacts plus generated_phase2_parameters.toml / generated_phase2_scenario.toml, generated_phase3_parameters.toml / generated_phase3_scenario.toml, generated_phase4_parameters.toml / generated_phase4_scenario.toml, generated_phase5_parameters.toml / generated_phase5_scenario.toml, and generated_phase6_parameters.toml / generated_phase6_scenario.toml.",
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode; dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2; active deterministic trade parameters from Trade_Inventory_FutureHooks for Phase 3; and active deterministic Phase 4 scheduling plus Phase 5 inventory controls from Trade_Inventory_FutureHooks together with the scenario-default Product_Parameters, Yield_Assumptions, and SS_Assumptions rows.",
+                "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode; dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2; active deterministic trade parameters from Trade_Inventory_FutureHooks for Phase 3; active deterministic Phase 4 scheduling plus Phase 5 inventory controls from Trade_Inventory_FutureHooks together with the scenario-default Product_Parameters, Yield_Assumptions, and SS_Assumptions rows; and active deterministic Phase 6 financial assumptions plus editable geography-bucketed Sub-Layer 1 -> Sub-Layer 2 shipping/cold-chain cost parameters from Trade_Inventory_FutureHooks together with the scenario-default Product_Parameters, Yield_Assumptions, and SS_Assumptions rows.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -153,7 +153,7 @@ def _build_instructions_sheet() -> SheetSpec:
                 WRAP_STYLE_ID,
             ),
             CellSpec(
-                "CML_Prevalent_Assumptions remains a dedicated artifact sheet. Populate approved pool, timing, and exhaustion metadata here without treating CML like AML/MDS segment mix logic. Trade_Inventory_FutureHooks still carries a historical name, but it now also feeds the active deterministic Phase 3 trade config plus the active Phase 4 scheduling and Phase 5 inventory config bridges.",
+                "CML_Prevalent_Assumptions remains a dedicated artifact sheet. Populate approved pool, timing, and exhaustion metadata here without treating CML like AML/MDS segment mix logic. Trade_Inventory_FutureHooks still carries a historical name, but it now also feeds the active deterministic Phase 3 trade config plus the active Phase 4 scheduling, Phase 5 inventory, and Phase 6 financial config bridges.",
                 WRAP_STYLE_ID,
             ),
         ),
@@ -855,6 +855,24 @@ def _build_trade_inventory_future_hooks_sheet() -> SheetSpec:
         "phase5_reconciliation_tolerance_units",
         "active_flag",
         "notes",
+        "ds_standard_cost_basis_unit",
+        "ds_standard_cost_per_mg",
+        "dp_conversion_cost_per_unit",
+        "fg_packaging_labeling_cost_per_unit",
+        "ss_standard_cost_per_unit",
+        "annual_inventory_carry_rate",
+        "monthly_inventory_carry_rate",
+        "expired_inventory_writeoff_rate",
+        "expired_inventory_salvage_rate",
+        "value_unmatched_fg_at_fg_standard_cost",
+        "include_trade_node_fg_value",
+        "use_matched_administrable_fg_value",
+        "phase6_enforce_unique_output_keys",
+        "phase6_reconciliation_tolerance_value",
+        "us_fg_sub1_to_sub2_cost_per_unit",
+        "eu_fg_sub1_to_sub2_cost_per_unit",
+        "us_ss_sub1_to_sub2_cost_per_unit",
+        "eu_ss_sub1_to_sub2_cost_per_unit",
     )
     rows: list[tuple[CellSpec, ...]] = [_header_row(headers)]
     scenario_default_row = {
@@ -926,7 +944,25 @@ def _build_trade_inventory_future_hooks_sheet() -> SheetSpec:
         "phase5_reconcile_phase4_receipts": "true",
         "phase5_reconciliation_tolerance_units": 0.000001,
         "active_flag": "yes",
-        "notes": "Active deterministic defaults for Phase 3, Phase 4, and Phase 5. Phase 5 shelf life and excess-cover values are revised placeholder baseline assumptions; edit here instead of hand-editing phase3_trade_layer.toml, phase4_production_schedule.toml, or phase5_inventory_layer.toml.",
+        "notes": "Active deterministic defaults for Phase 3, Phase 4, Phase 5, and Phase 6. Phase 5 shelf life/excess-cover and Phase 6 standard-cost placeholders are revised baseline assumptions; edit here instead of hand-editing phase3_trade_layer.toml, phase4_production_schedule.toml, phase5_inventory_layer.toml, or phase6_financial_layer.toml.",
+        "ds_standard_cost_basis_unit": "mg",
+        "ds_standard_cost_per_mg": 0.002,
+        "dp_conversion_cost_per_unit": 0.5,
+        "fg_packaging_labeling_cost_per_unit": 0.25,
+        "ss_standard_cost_per_unit": 0.1,
+        "annual_inventory_carry_rate": 0.2,
+        "monthly_inventory_carry_rate": 0.0166666666666667,
+        "expired_inventory_writeoff_rate": 1.0,
+        "expired_inventory_salvage_rate": 0.0,
+        "value_unmatched_fg_at_fg_standard_cost": "true",
+        "include_trade_node_fg_value": "true",
+        "use_matched_administrable_fg_value": "true",
+        "phase6_enforce_unique_output_keys": "true",
+        "phase6_reconciliation_tolerance_value": 0.000001,
+        "us_fg_sub1_to_sub2_cost_per_unit": 25.0,
+        "eu_fg_sub1_to_sub2_cost_per_unit": 57.5,
+        "us_ss_sub1_to_sub2_cost_per_unit": 25.0,
+        "eu_ss_sub1_to_sub2_cost_per_unit": 57.5,
     }
     example_rows = [
         scenario_default_row,
@@ -976,13 +1012,17 @@ def _build_trade_inventory_future_hooks_sheet() -> SheetSpec:
 
     for row in example_rows:
         row_values = [row.get(header, "") for header in headers[1:]]
+        rendered_cells: list[CellSpec] = [
+            CellSpec(style_id=CALCULATED_STYLE_ID, formula='IF(Scenario_Controls!$A$2="","",Scenario_Controls!$A$2)')
+        ]
+        for header, value in zip(headers[1:], row_values, strict=True):
+            style_id = EDITABLE_WRAP_STYLE_ID if header == "notes" else EDITABLE_STYLE_ID
+            if value == "":
+                rendered_cells.append(CellSpec(style_id=style_id))
+            else:
+                rendered_cells.append(CellSpec(value, style_id))
         rows.append(
-            (
-                CellSpec(style_id=CALCULATED_STYLE_ID, formula='IF(Scenario_Controls!$A$2="","",Scenario_Controls!$A$2)'),
-                *(CellSpec(value, EDITABLE_STYLE_ID) if value != "" else CellSpec(style_id=EDITABLE_STYLE_ID) for value in row_values[:-2]),
-                CellSpec(row_values[-2], EDITABLE_STYLE_ID),
-                CellSpec(row_values[-1], EDITABLE_WRAP_STYLE_ID),
-            )
+            tuple(rendered_cells)
         )
     rows.extend(
         _blank_input_rows(
@@ -990,8 +1030,9 @@ def _build_trade_inventory_future_hooks_sheet() -> SheetSpec:
             count=TRADE_FUTURE_TEMPLATE_ROWS - len(example_rows),
             style_map=(
                 (CALCULATED_STYLE_ID,)
-                + (EDITABLE_STYLE_ID,) * (len(headers) - 2)
+                + (EDITABLE_STYLE_ID,) * (headers.index("notes") - 1)
                 + (EDITABLE_WRAP_STYLE_ID,)
+                + (EDITABLE_STYLE_ID,) * (len(headers) - headers.index("notes") - 1)
             ),
         )
     )
@@ -1002,10 +1043,11 @@ def _build_trade_inventory_future_hooks_sheet() -> SheetSpec:
             18, 18, 18, 16, 18, 18, 18, 20, 18, 24, 20, 18, 18, 18, 22, 22, 16, 18, 20, 20, 18,
             18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 20, 18, 18, 18, 18, 20, 20, 18, 18, 18,
             22, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18,
-            18, 18, 18, 18, 18, 18, 18, 18, 12, 72,
+            18, 18, 18, 18, 18, 18, 18, 18, 12, 72, 18, 18, 18, 20, 18, 18, 18, 18, 18, 18, 18,
+            20, 18, 18,
         ),
         freeze_cell="A2",
-        auto_filter_ref="A1:BV1",
+        auto_filter_ref="A1:CJ1",
         data_validations=(
             DataValidationSpec("B2:B21", "list", "Lookup_Lists!$O$2:$O$4"),
             DataValidationSpec("C2:C21", "list", "Lookup_Lists!$B$2:$B$6"),
@@ -1013,6 +1055,7 @@ def _build_trade_inventory_future_hooks_sheet() -> SheetSpec:
             DataValidationSpec("BB2:BB21", "list", "Lookup_Lists!$F$2:$F$3"),
             DataValidationSpec("BO2:BS21", "list", "Lookup_Lists!$F$2:$F$3"),
             DataValidationSpec("BU2:BU21", "list", "Lookup_Lists!$J$2:$J$3"),
+            DataValidationSpec("CF2:CI21", "list", "Lookup_Lists!$F$2:$F$3"),
         ),
     )
 

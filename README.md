@@ -23,7 +23,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - Phase 3 trade outputs for patient FG demand, Sub-Layer 2 pull, and ex-factory FG demand
 - Phase 4 schedule outputs for DS, DP, FG, and SS starts/releases
 - Phase 5 rolling inventory outputs for DS, DP, FG, SS, Sub-Layer 1 FG, and Sub-Layer 2 FG
-- Phase 6 deterministic financial outputs for inventory value, release value, carrying cost, and expiry/write-off exposure
+- Phase 6 deterministic financial outputs for inventory value, release value, shipping / cold-chain cost, carrying cost, and expiry/write-off exposure
 - Configurable commercial forecast grain:
   - `module_level`
   - `segment_level`
@@ -56,6 +56,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `python scripts/run_phase6.py --scenario config/scenarios/base_phase6.toml`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029" --overwrite`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase5 --overwrite`
+- `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_FixedBaseline.xlsx" --scenario-name "FixedBaseline" --output-dir "data/outputs/fixedbaseline" --run-phase6 --overwrite`
 
 ## Forecast Templates
 - `templates/CBX250_Commercial_Forecast_Template.xlsx`
@@ -111,6 +112,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `resolved_phase3_config_snapshot.json`
   - `resolved_phase4_config_snapshot.json`
   - `resolved_phase5_config_snapshot.json`
+  - `resolved_phase6_config_snapshot.json`
   - `assumptions_import_summary.json`
   - `generated_phase2_parameters.toml`
   - `generated_phase2_scenario.toml`
@@ -120,6 +122,8 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `generated_phase4_scenario.toml`
   - `generated_phase5_parameters.toml`
   - `generated_phase5_scenario.toml`
+  - `generated_phase6_parameters.toml`
+  - `generated_phase6_scenario.toml`
 - Current wiring into the active Phase 2 engine:
   - `Scenario_Controls.dose_basis_default -> model.dose_basis`
   - `Dosing_Assumptions` module rows -> `module_settings.<module>` fixed dose, weight-based dose, average weight, and doses-per-patient-per-month
@@ -139,8 +143,21 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `dp_concentration_mg_per_ml`
   - `dp_fill_volume_ml`
 - Current Phase 3 note:
-  - `Trade_Inventory_FutureHooks` remains the business-facing bridge sheet for active deterministic Phase 3 trade, Phase 4 production scheduling, and Phase 5 inventory parameters.
-  - Product and yield scenario-default rows continue to feed shared conversion assumptions used by Phases 2, 4, and 5.
+  - `Trade_Inventory_FutureHooks` remains the business-facing bridge sheet for active deterministic Phase 3 trade, Phase 4 production scheduling, Phase 5 inventory, and Phase 6 financial parameters.
+  - Product and yield scenario-default rows continue to feed shared conversion assumptions used by Phases 2, 4, 5, and 6.
+- Current Phase 6 wiring:
+  - `Trade_Inventory_FutureHooks` `scenario_default` row -> active deterministic Phase 6 `cost_basis`, `carrying_cost`, `expiry_writeoff`, `valuation_policy`, `shipping_cold_chain`, and `validation`
+  - workbook-editable shipping/cold-chain fields in `Trade_Inventory_FutureHooks`:
+    - `us_fg_sub1_to_sub2_cost_per_unit`
+    - `eu_fg_sub1_to_sub2_cost_per_unit`
+    - `us_ss_sub1_to_sub2_cost_per_unit`
+    - `eu_ss_sub1_to_sub2_cost_per_unit`
+  - `Product_Parameters` scenario-default row -> `conversion.ds_qty_per_dp_unit_mg`
+  - `Yield_Assumptions` scenario-default row -> `conversion.dp_to_fg_yield`, `conversion.ds_to_dp_yield`, and `conversion.ds_overage_factor`
+  - `SS_Assumptions` scenario-default row -> `conversion.ss_ratio_to_fg`
+- Legacy workbook compatibility note:
+  - if an older assumptions workbook does not yet contain the Phase 6 workbook columns, the importer still generates active Phase 6 config artifacts using the current deterministic baseline defaults from `config/parameters/phase6_financial_layer.toml` and emits a warning to refresh the workbook template.
+  - this explicit fallback currently covers the new shipping/cold-chain fields too, so older workbooks still run but do not edit those Phase 6 shipping values directly.
 
 ## One-Command Workflow
 - Run the end-to-end import plus deterministic cascade from the repo root with:
@@ -156,17 +173,21 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase4 --overwrite`
 - To run the same workflow through deterministic Phase 5 as well, run:
   - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase5 --overwrite`
+- To run the same workflow through deterministic Phase 6 as well, run:
+  - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_FixedBaseline.xlsx" --scenario-name "FixedBaseline" --output-dir "data/outputs/fixedbaseline" --run-phase6 --overwrite`
 - If `--scenario-name` is omitted, the wrapper derives a safe default from the workbook filename.
 - Optional arguments:
   - `--phase2-scenario config/scenarios/base_phase2.toml`
   - `--phase3-scenario config/scenarios/base_phase3.toml`
   - `--phase4-scenario config/scenarios/base_phase4.toml`
   - `--phase5-scenario config/scenarios/base_phase5.toml`
+  - `--phase6-scenario config/scenarios/base_phase6.toml`
   - `--assumptions-workbook data/raw/CBX250_Model_Assumptions_Baseline.xlsx`
   - `--output-dir data/curated/real_2029`
   - `--run-phase3`
   - `--run-phase4`
   - `--run-phase5`
+  - `--run-phase6`
   - `--overwrite`
 - The wrapper does not duplicate business logic. It:
   - optionally imports the assumptions workbook into normalized artifacts under `<output_dir>/assumptions`
@@ -181,18 +202,23 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - optionally runs the existing deterministic Phase 4 production scheduler
   - optionally creates a generated Phase 5 scenario pointing to the workflow Phase 3 and Phase 4 outputs
   - optionally runs the existing deterministic Phase 5 inventory layer
+  - optionally creates a generated Phase 6 scenario pointing to the workflow Phase 4 and Phase 5 outputs
+  - optionally runs the existing deterministic Phase 6 financial/value layer
 - Precedence:
   - if `--assumptions-workbook` is provided, its generated Phase 2 scenario/config becomes the active Phase 2 parameter source
   - if `--assumptions-workbook` is provided and `--run-phase3` is enabled, its generated Phase 3 scenario/config becomes the active Phase 3 parameter source
   - if `--assumptions-workbook` is provided and `--run-phase4` is enabled, its generated Phase 4 scenario/config becomes the active Phase 4 parameter source
   - if `--assumptions-workbook` is provided and `--run-phase5` is enabled, its generated Phase 5 scenario/config becomes the active Phase 5 parameter source
+  - if `--assumptions-workbook` is provided and `--run-phase6` is enabled, its generated Phase 6 scenario/config becomes the active Phase 6 parameter source
   - if both `--assumptions-workbook` and `--phase2-scenario` are provided, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase2-scenario` was ignored
   - if both `--assumptions-workbook` and `--phase3-scenario` are provided with `--run-phase3`, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase3-scenario` was ignored
   - if both `--assumptions-workbook` and `--phase4-scenario` are provided with `--run-phase4` or `--run-phase5`, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase4-scenario` was ignored
   - if both `--assumptions-workbook` and `--phase5-scenario` are provided with `--run-phase5`, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase5-scenario` was ignored
+  - if both `--assumptions-workbook` and `--phase6-scenario` are provided with `--run-phase6`, the workflow uses the assumptions workbook and reports a clear warning that the explicit `--phase6-scenario` was ignored
   - if `--run-phase3` is enabled without `--assumptions-workbook`, the workflow uses `--phase3-scenario` if supplied, otherwise it falls back to `config/scenarios/base_phase3.toml`
   - if `--run-phase4` is enabled, Phase 3 runs automatically and the workflow uses `--phase4-scenario` if supplied, otherwise it falls back to `config/scenarios/base_phase4.toml`
   - if `--run-phase5` is enabled, Phases 3 and 4 run automatically and the workflow uses `--phase5-scenario` if supplied, otherwise it falls back to `config/scenarios/base_phase5.toml`
+  - if `--run-phase6` is enabled, Phases 3, 4, and 5 run automatically and the workflow uses `--phase6-scenario` if supplied, otherwise it falls back to `config/scenarios/base_phase6.toml`
 - Expected outputs from the wrapper are written to the selected output directory:
   - `monthlyized_output.csv`
   - `phase2_deterministic_cascade.csv`
@@ -203,7 +229,9 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `generated_phase4_scenario.toml` when `--run-phase4` or `--run-phase5` is enabled
   - `phase5_inventory_detail.csv`, `phase5_monthly_summary.csv`, and `phase5_inventory_cohort_audit.csv` when `--run-phase5` is enabled
   - `generated_phase5_scenario.toml` when `--run-phase5` is enabled
-  - `assumptions/` normalized artifacts and generated Phase 2 / Phase 3 / Phase 4 / Phase 5 config files when `--assumptions-workbook` is provided
+  - `phase6_financial_detail.csv`, `phase6_monthly_financial_summary.csv`, and `phase6_annual_financial_summary.csv` when `--run-phase6` is enabled
+  - `generated_phase6_scenario.toml` when `--run-phase6` is enabled
+  - `assumptions/` normalized artifacts and generated Phase 2 / Phase 3 / Phase 4 / Phase 5 / Phase 6 config files when `--assumptions-workbook` is provided
   - the standard normalized Phase 1 CSV package and `workbook_import_summary.json`
 - The terminal summary reports:
   - `scenario_name`
@@ -225,6 +253,15 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `ending_ss_inventory_units` when Phase 5 runs
   - `phase5_stockout_row_count` when Phase 5 runs
   - `phase5_expiry_row_count` when Phase 5 runs
+  - `total_inventory_value` when Phase 6 runs
+  - `total_expired_writeoff_value` when Phase 6 runs
+  - `total_carrying_cost` when Phase 6 runs
+  - `total_shipping_cold_chain_cost` when Phase 6 runs
+  - `total_us_shipping_cold_chain_cost` and `total_eu_shipping_cold_chain_cost` when Phase 6 runs
+  - `total_fg_shipping_cold_chain_cost` and `total_ss_shipping_cold_chain_cost` when Phase 6 runs
+  - `ending_matched_administrable_fg_value` when Phase 6 runs
+  - `carrying_cost_exceeds_ending_inventory_value` when Phase 6 runs
+  - `carrying_cost_interpretation_note` when Phase 6 runs
   - authoritative output file paths for each phase that ran
   - `total_dp_units_required`
   - `total_ds_required` (backward-compatible mg total)
@@ -568,11 +605,18 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - Current deterministic placeholder financial assumptions live in:
   - `config/parameters/phase6_financial_layer.toml`
   - `config/scenarios/base_phase6.toml`
+- The assumptions workbook now actively drives Phase 6 when you use `scripts/assumptions_import.py` or the one-command workflow with `--assumptions-workbook`.
+- Active workbook-driven Phase 6 settings come from:
+  - `Trade_Inventory_FutureHooks` `scenario_default` row -> `cost_basis`, `carrying_cost`, `expiry_writeoff`, `valuation_policy`, `shipping_cold_chain`, and `validation`
+  - `Product_Parameters` scenario-default row -> `conversion.ds_qty_per_dp_unit_mg`
+  - `Yield_Assumptions` scenario-default row -> `conversion.dp_to_fg_yield`, `conversion.ds_to_dp_yield`, and `conversion.ds_overage_factor`
+  - `SS_Assumptions` scenario-default row -> `conversion.ss_ratio_to_fg`
 - Phase 6 values:
   - inventory by stage/node
   - stage release exposure
   - expiry/write-off exposure
   - carrying cost exposure
+  - geography-specific Sub-Layer 1 -> Sub-Layer 2 shipping / cold-chain cost
   - matched administrable FG value
   - unmatched FG value at risk
 - Current cost-stack design:
@@ -583,6 +627,14 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - Current carrying-cost design:
   - deterministic monthly carrying cost = ending inventory value × `monthly_inventory_carry_rate`
   - base config keeps `monthly_inventory_carry_rate = annual_inventory_carry_rate / 12`
+  - `total_carrying_cost` is cumulative across the modeled horizon, while `ending_total_inventory_value` is a point-in-time ending snapshot; `total_carrying_cost` can therefore exceed `ending_total_inventory_value` without indicating a bug.
+- Current shipping / cold-chain design:
+  - shipping cost is applied once to actual `SubLayer1_FG` `issues`, which represent the geography-specific Sub-Layer 1 -> Sub-Layer 2 shipment leg
+  - `US` uses `shipping_cold_chain.us_fg_sub1_to_sub2_cost_per_unit` and `shipping_cold_chain.us_ss_sub1_to_sub2_cost_per_unit`
+  - all non-`US` geographies currently use the EU / international bucket `shipping_cold_chain.eu_fg_sub1_to_sub2_cost_per_unit` and `shipping_cold_chain.eu_ss_sub1_to_sub2_cost_per_unit`
+  - SS shipping is modeled in parallel from the same shipment leg using `ss_ratio_to_fg`
+  - shipping is kept separate from `fg_packaging_labeling_cost_per_unit`, carrying cost, and expiry/write-off value
+  - when the one-command workflow runs with `--assumptions-workbook ... --run-phase6`, these workbook shipping fields flow automatically into `generated_phase6_parameters.toml`, `generated_phase6_scenario.toml`, and `resolved_phase6_config_snapshot.json`
 - Current expiry/write-off design:
   - expired value = expired quantity × stage/node standard cost × `expired_inventory_writeoff_rate` × `(1 - expired_inventory_salvage_rate)`
 - To avoid DS/DP/FG stage double counting, `total_release_value` in the monthly and annual summary is defined as FG release value + SS release value only.
@@ -590,14 +642,21 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
   - `phase6_financial_detail.csv`
   - `phase6_monthly_financial_summary.csv`
   - `phase6_annual_financial_summary.csv`
+- New Phase 6 shipping audit fields:
+  - detail: `shipment_quantity_basis_units`, `shipping_cold_chain_cost_rate`, `shipping_cold_chain_cost_value`
+  - monthly / annual summary: `fg_shipping_cold_chain_cost`, `ss_shipping_cold_chain_cost`, `total_shipping_cold_chain_cost`
 - Run the checked-in sample Phase 6 scenario with:
   - `python scripts/run_phase6.py --scenario config/scenarios/base_phase6.toml`
 - Run the real FixedBaseline Phase 6 scenario after the physical workflow completes with:
   - `python scripts/run_phase6.py --scenario config/scenarios/fixedbaseline_phase6.toml`
+- Run the workbook-driven workflow straight through Phase 6 with:
+  - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_FixedBaseline.xlsx" --scenario-name "FixedBaseline" --output-dir "data/outputs/fixedbaseline" --run-phase6 --overwrite`
 - Remaining out of scope in this layer:
   - revenue / net sales forecasting
   - booked accounting treatment
   - Monte Carlo or probabilistic financial risk
+  - company warehouse -> Sub-Layer 1 shipping cost
+  - country-by-country EU lane breakout or variable lane / excursion surcharge logic
   - optimization and dashboarding
 
 ## Deferred Beyond Phase 6

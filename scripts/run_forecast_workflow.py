@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Import a Commercial forecast workbook, generate authoritative monthlyized_output.csv, "
             "run the deterministic Phase 2 cascade, and optionally continue through the deterministic "
-            "Phase 3, Phase 4, and Phase 5 layers."
+            "Phase 3, Phase 4, Phase 5, and Phase 6 layers."
         )
     )
     parser.add_argument(
@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
         "--assumptions-workbook",
         type=Path,
         default=None,
-        help="Optional business-facing assumptions workbook. If provided, its generated Phase 2 / Phase 3 / Phase 4 / Phase 5 configs become the active parameter sources for the phases that run.",
+        help="Optional business-facing assumptions workbook. If provided, its generated Phase 2 / Phase 3 / Phase 4 / Phase 5 / Phase 6 configs become the active parameter sources for the phases that run.",
     )
     parser.add_argument(
         "--scenario-name",
@@ -63,10 +63,16 @@ def parse_args() -> argparse.Namespace:
         help="Optional Phase 5 scenario template to use when --run-phase5 is enabled and --assumptions-workbook is not provided. Defaults to config/scenarios/base_phase5.toml.",
     )
     parser.add_argument(
+        "--phase6-scenario",
+        type=Path,
+        default=None,
+        help="Optional Phase 6 scenario template to use when --run-phase6 is enabled and --assumptions-workbook is not provided. Defaults to config/scenarios/base_phase6.toml.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
-        help="Optional directory for imported Phase 1 outputs, generated workflow scenarios, Phase 2 cascade output, and optional Phase 3 trade output.",
+        help="Optional directory for imported Phase 1 outputs, generated workflow scenarios, and deterministic outputs through the highest phase that runs.",
     )
     parser.add_argument(
         "--overwrite",
@@ -88,6 +94,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run the deterministic Phase 5 inventory layer after Phase 4. This also runs Phases 3 and 4 if needed.",
     )
+    parser.add_argument(
+        "--run-phase6",
+        action="store_true",
+        help="Run the deterministic Phase 6 financial layer after Phase 5. This also runs Phases 3, 4, and 5 if needed.",
+    )
     return parser.parse_args()
 
 
@@ -102,11 +113,13 @@ def main() -> int:
             phase3_scenario=args.phase3_scenario,
             phase4_scenario=args.phase4_scenario,
             phase5_scenario=args.phase5_scenario,
+            phase6_scenario=args.phase6_scenario,
             output_dir=args.output_dir,
             overwrite=args.overwrite,
             run_phase3=args.run_phase3,
             run_phase4=args.run_phase4,
             run_phase5=args.run_phase5,
+            run_phase6=args.run_phase6,
         )
     except (FileNotFoundError, NotADirectoryError, FileExistsError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

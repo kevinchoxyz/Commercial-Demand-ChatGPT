@@ -84,8 +84,8 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
     ]
     assert _row_values(output_path, sheet_map["Instructions"], 7) == [
         "Current engine wiring",
-        "The importer generates machine-readable CSV artifacts plus generated_phase2_parameters.toml / generated_phase2_scenario.toml, generated_phase3_parameters.toml / generated_phase3_scenario.toml, generated_phase4_parameters.toml / generated_phase4_scenario.toml, and generated_phase5_parameters.toml / generated_phase5_scenario.toml.",
-        "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode; dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2; active deterministic trade parameters from Trade_Inventory_FutureHooks for Phase 3; and active deterministic Phase 4 scheduling plus Phase 5 inventory controls from Trade_Inventory_FutureHooks together with the scenario-default Product_Parameters, Yield_Assumptions, and SS_Assumptions rows.",
+        "The importer generates machine-readable CSV artifacts plus generated_phase2_parameters.toml / generated_phase2_scenario.toml, generated_phase3_parameters.toml / generated_phase3_scenario.toml, generated_phase4_parameters.toml / generated_phase4_scenario.toml, generated_phase5_parameters.toml / generated_phase5_scenario.toml, and generated_phase6_parameters.toml / generated_phase6_scenario.toml.",
+        "Current wiring consumes: Scenario_Controls.demand_basis plus Treatment_Duration_Assumptions for Phase 1 starts-based mode; dose_basis_default, module-specific dosing values, module FG mg per unit, module FG vialing rule, global yields, DS quantity per DP unit default, DS overage default, SS ratio, and co_pack_mode for Phase 2; active deterministic trade parameters from Trade_Inventory_FutureHooks for Phase 3; active deterministic Phase 4 scheduling plus Phase 5 inventory controls from Trade_Inventory_FutureHooks together with the scenario-default Product_Parameters, Yield_Assumptions, and SS_Assumptions rows; and active deterministic Phase 6 financial assumptions plus editable geography-bucketed Sub-Layer 1 -> Sub-Layer 2 shipping/cold-chain cost parameters from Trade_Inventory_FutureHooks together with the scenario-default Product_Parameters, Yield_Assumptions, and SS_Assumptions rows.",
     ]
     assert _row_values(output_path, sheet_map["Scenario_Controls"], 2) == [
         "BASE_2029",
@@ -236,7 +236,19 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
     assert "starting_inventory_fg_units" in trade_headers
     assert "shelf_life_fg_months" in trade_headers
     assert "phase5_reconciliation_tolerance_units" in trade_headers
-    assert trade_headers[-2:] == ["active_flag", "notes"]
+    assert "active_flag" in trade_headers
+    assert "notes" in trade_headers
+    assert trade_headers[-9:] == [
+        "value_unmatched_fg_at_fg_standard_cost",
+        "include_trade_node_fg_value",
+        "use_matched_administrable_fg_value",
+        "phase6_enforce_unique_output_keys",
+        "phase6_reconciliation_tolerance_value",
+        "us_fg_sub1_to_sub2_cost_per_unit",
+        "eu_fg_sub1_to_sub2_cost_per_unit",
+        "us_ss_sub1_to_sub2_cost_per_unit",
+        "eu_ss_sub1_to_sub2_cost_per_unit",
+    ]
 
     trade_row = _row_values(output_path, sheet_map["Trade_Inventory_FutureHooks"], 2)
     assert trade_row[1:17] == [
@@ -264,10 +276,30 @@ def test_build_model_assumptions_template_creates_expected_workbook(tmp_path: Pa
     assert "48" in trade_row
     assert "36" in trade_row
     assert "18" in trade_row
-    assert trade_row[-2] == "yes"
-    assert trade_row[-1] == (
-        "Active deterministic defaults for Phase 3, Phase 4, and Phase 5. Phase 5 shelf life and excess-cover values are revised placeholder baseline assumptions; edit here instead of hand-editing phase3_trade_layer.toml, phase4_production_schedule.toml, or phase5_inventory_layer.toml."
+    assert trade_row[72] == "yes"
+    assert trade_row[73] == (
+        "Active deterministic defaults for Phase 3, Phase 4, Phase 5, and Phase 6. Phase 5 shelf life/excess-cover and Phase 6 standard-cost placeholders are revised baseline assumptions; edit here instead of hand-editing phase3_trade_layer.toml, phase4_production_schedule.toml, phase5_inventory_layer.toml, or phase6_financial_layer.toml."
     )
+    assert trade_row[74:] == [
+        "mg",
+        "0.002",
+        "0.5",
+        "0.25",
+        "0.1",
+        "0.2",
+        "0.0166666666666667",
+        "1",
+        "0",
+        "true",
+        "true",
+        "true",
+        "true",
+        "1e-06",
+        "25",
+        "57.5",
+        "25",
+        "57.5",
+    ]
     assert _cell_formula(output_path, sheet_map["Dosing_Assumptions"], "A2") == (
         'IF(Scenario_Controls!$A$2="","",Scenario_Controls!$A$2)'
     )

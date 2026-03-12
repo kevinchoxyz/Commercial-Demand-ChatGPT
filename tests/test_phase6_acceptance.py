@@ -43,5 +43,9 @@ def test_phase6_acceptance_runs_from_authoritative_phase4_and_phase5_outputs(tmp
     assert annual_output_path.name == "phase6_annual_financial_summary.csv"
     assert any(row["financial_node_or_stage"] == "FG_Central" for row in detail_rows)
     assert any(row["financial_node_or_stage"] == "FG_Release" for row in detail_rows)
+    assert any(row["financial_node_or_stage"] == "FG_Sub1_to_Sub2_Shipping" for row in detail_rows)
+    assert "shipping_cold_chain_cost_value" in detail_rows[0]
     assert any(float(row["total_inventory_value"]) >= 0 for row in monthly_rows)
+    assert "total_shipping_cold_chain_cost" in monthly_rows[0]
     assert any(int(row["calendar_year"]) >= 2029 for row in annual_rows)
+    assert "total_shipping_cold_chain_cost" in annual_rows[0]

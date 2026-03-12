@@ -134,6 +134,14 @@ class ValuationPolicyConfig:
 
 
 @dataclass(frozen=True)
+class ShippingColdChainConfig:
+    us_fg_sub1_to_sub2_cost_per_unit: float
+    eu_fg_sub1_to_sub2_cost_per_unit: float
+    us_ss_sub1_to_sub2_cost_per_unit: float
+    eu_ss_sub1_to_sub2_cost_per_unit: float
+
+
+@dataclass(frozen=True)
 class ConversionConfig:
     dp_to_fg_yield: float
     ds_to_dp_yield: float
@@ -160,6 +168,7 @@ class Phase6Config:
     carrying_cost: CarryingCostConfig
     expiry_writeoff: ExpiryWriteoffConfig
     valuation_policy: ValuationPolicyConfig
+    shipping_cold_chain: ShippingColdChainConfig
     conversion: ConversionConfig
     validation: ValidationConfig
 
@@ -178,6 +187,7 @@ def load_phase6_config(scenario_path: Path) -> Phase6Config:
     carrying_cost_data = parameter_data["carrying_cost"]
     expiry_writeoff_data = parameter_data["expiry_writeoff"]
     valuation_policy_data = parameter_data["valuation_policy"]
+    shipping_cold_chain_data = parameter_data.get("shipping_cold_chain", {})
     conversion_data = parameter_data["conversion"]
     validation_data = parameter_data["validation"]
     geography_overrides = parameter_data.get("geography_fg_packaging_labeling_cost_overrides", {})
@@ -276,6 +286,30 @@ def load_phase6_config(scenario_path: Path) -> Phase6Config:
             include_trade_node_fg_value=bool(valuation_policy_data["include_trade_node_fg_value"]),
             use_matched_administrable_fg_value=bool(
                 valuation_policy_data["use_matched_administrable_fg_value"]
+            ),
+        ),
+        shipping_cold_chain=ShippingColdChainConfig(
+            us_fg_sub1_to_sub2_cost_per_unit=_parse_nonnegative_float(
+                shipping_cold_chain_data.get("us_fg_sub1_to_sub2_cost_per_unit", 0.0),
+                "shipping_cold_chain.us_fg_sub1_to_sub2_cost_per_unit",
+            ),
+            eu_fg_sub1_to_sub2_cost_per_unit=_parse_nonnegative_float(
+                shipping_cold_chain_data.get("eu_fg_sub1_to_sub2_cost_per_unit", 0.0),
+                "shipping_cold_chain.eu_fg_sub1_to_sub2_cost_per_unit",
+            ),
+            us_ss_sub1_to_sub2_cost_per_unit=_parse_nonnegative_float(
+                shipping_cold_chain_data.get(
+                    "us_ss_sub1_to_sub2_cost_per_unit",
+                    shipping_cold_chain_data.get("us_fg_sub1_to_sub2_cost_per_unit", 0.0),
+                ),
+                "shipping_cold_chain.us_ss_sub1_to_sub2_cost_per_unit",
+            ),
+            eu_ss_sub1_to_sub2_cost_per_unit=_parse_nonnegative_float(
+                shipping_cold_chain_data.get(
+                    "eu_ss_sub1_to_sub2_cost_per_unit",
+                    shipping_cold_chain_data.get("eu_fg_sub1_to_sub2_cost_per_unit", 0.0),
+                ),
+                "shipping_cold_chain.eu_ss_sub1_to_sub2_cost_per_unit",
             ),
         ),
         conversion=ConversionConfig(

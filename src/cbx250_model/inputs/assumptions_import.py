@@ -9,6 +9,7 @@ import csv
 import json
 import os
 import re
+import tomllib
 
 from ..constants import (
     MODULE_TO_SEGMENTS,
@@ -22,6 +23,9 @@ from ..constants import (
     PHASE5_BUILD_SCOPE,
     PHASE5_DISABLED_CAPABILITIES,
     PHASE5_UPSTREAM_SUPPLY_CONTRACT,
+    PHASE6_BUILD_SCOPE,
+    PHASE6_DISABLED_CAPABILITIES,
+    PHASE6_UPSTREAM_VALUE_CONTRACT,
     PHASE3_BUILD_SCOPE,
     PHASE3_DISABLED_CAPABILITIES,
     PHASE3_UPSTREAM_DEMAND_CONTRACT,
@@ -146,7 +150,7 @@ CML_PREVALENT_HEADERS = (
     "active_flag",
     "notes",
 )
-TRADE_HEADERS = (
+LEGACY_TRADE_HEADERS = (
     "scenario_name",
     "trade_row_type",
     "module",
@@ -222,6 +226,27 @@ TRADE_HEADERS = (
     "active_flag",
     "notes",
 )
+PHASE6_TRADE_HEADERS = (
+    "ds_standard_cost_basis_unit",
+    "ds_standard_cost_per_mg",
+    "dp_conversion_cost_per_unit",
+    "fg_packaging_labeling_cost_per_unit",
+    "ss_standard_cost_per_unit",
+    "annual_inventory_carry_rate",
+    "monthly_inventory_carry_rate",
+    "expired_inventory_writeoff_rate",
+    "expired_inventory_salvage_rate",
+    "value_unmatched_fg_at_fg_standard_cost",
+    "include_trade_node_fg_value",
+    "use_matched_administrable_fg_value",
+    "phase6_enforce_unique_output_keys",
+    "phase6_reconciliation_tolerance_value",
+    "us_fg_sub1_to_sub2_cost_per_unit",
+    "eu_fg_sub1_to_sub2_cost_per_unit",
+    "us_ss_sub1_to_sub2_cost_per_unit",
+    "eu_ss_sub1_to_sub2_cost_per_unit",
+)
+TRADE_HEADERS = LEGACY_TRADE_HEADERS + PHASE6_TRADE_HEADERS
 
 ALLOWED_PARAMETER_SCOPES = ("scenario_default", "module_override")
 ALLOWED_WORKBOOK_VIALING_RULES = ("patient_dose_ceiling",)
@@ -304,8 +329,12 @@ def import_model_assumptions_workbook(
         allowed_scenario_names=allowed_scenario_names,
         scenario_name=context.scenario_name,
     )
+    raw_trade_rows, trade_warnings = _read_trade_future_hooks_rows(
+        reader,
+        workbook_path=workbook_path.resolve(),
+    )
     trade_rows = _normalize_trade_future_hooks(
-        reader.read_table("Trade_Inventory_FutureHooks", TRADE_HEADERS),
+        raw_trade_rows,
         allowed_scenario_names=allowed_scenario_names,
         scenario_name=context.scenario_name,
     )
@@ -335,6 +364,13 @@ def import_model_assumptions_workbook(
         ss_rows=ss_rows,
         trade_rows=trade_rows,
     )
+    resolved_phase6 = _resolve_phase6_config(
+        product_rows=product_rows,
+        yield_rows=yield_rows,
+        ss_rows=ss_rows,
+        trade_rows=trade_rows,
+    )
+    warnings = [*trade_warnings, *warnings]
 
     resolved_output_dir = _resolve_output_dir(
         workbook_path=workbook_path,
@@ -358,6 +394,7 @@ def import_model_assumptions_workbook(
         resolved_phase3=resolved_phase3,
         resolved_phase4=resolved_phase4,
         resolved_phase5=resolved_phase5,
+        resolved_phase6=resolved_phase6,
         workbook_path=workbook_path.resolve(),
         warnings=warnings,
     )
@@ -381,6 +418,102 @@ def import_model_assumptions_workbook(
         row_counts=row_counts,
         warnings=tuple(warnings),
     )
+
+
+def _read_trade_future_hooks_rows(
+    reader: WorkbookReader,
+    *,
+    workbook_path: Path,
+) -> tuple[list[dict[str, str]], list[str]]:
+    try:
+        return reader.read_table("Trade_Inventory_FutureHooks", TRADE_HEADERS), []
+    except ValueError as exc:
+        message = str(exc)
+        if "headers do not match the expected contract" not in message:
+            raise
+
+    legacy_rows = reader.read_table("Trade_Inventory_FutureHooks", LEGACY_TRADE_HEADERS)
+    phase6_defaults = _load_phase6_trade_default_values()
+    normalized_rows: list[dict[str, str]] = []
+    for row in legacy_rows:
+        merged_row = dict(row)
+        if row.get("trade_row_type", "").strip() == "scenario_default":
+            merged_row.update(phase6_defaults)
+        else:
+            for field_name in PHASE6_TRADE_HEADERS:
+                merged_row.setdefault(field_name, "")
+        normalized_rows.append(merged_row)
+    warnings = [
+        "Trade_Inventory_FutureHooks uses the legacy Phase 5-era header contract in "
+        f"{workbook_path.name}; Phase 6 workbook fields were not present, so generated Phase 6 config "
+        "used the current deterministic baseline defaults from config/parameters/phase6_financial_layer.toml, "
+        "including us_fg_sub1_to_sub2_cost_per_unit, eu_fg_sub1_to_sub2_cost_per_unit, "
+        "us_ss_sub1_to_sub2_cost_per_unit, and eu_ss_sub1_to_sub2_cost_per_unit. "
+        "Regenerate or update the assumptions workbook template to edit Phase 6 values directly.",
+    ]
+    return normalized_rows, warnings
+
+
+def _load_phase6_trade_default_values() -> dict[str, str]:
+    config_path = Path(__file__).resolve().parents[3] / "config" / "parameters" / "phase6_financial_layer.toml"
+    with config_path.open("rb") as handle:
+        config_data = tomllib.load(handle)
+    cost_basis = config_data["cost_basis"]
+    carrying_cost = config_data["carrying_cost"]
+    expiry_writeoff = config_data["expiry_writeoff"]
+    valuation_policy = config_data["valuation_policy"]
+    shipping_cold_chain = config_data.get("shipping_cold_chain", {})
+    validation = config_data["validation"]
+    return {
+        "ds_standard_cost_basis_unit": str(cost_basis["ds_standard_cost_basis_unit"]),
+        "ds_standard_cost_per_mg": _format_numeric(float(cost_basis["ds_standard_cost_per_mg"])),
+        "dp_conversion_cost_per_unit": _format_numeric(float(cost_basis["dp_conversion_cost_per_unit"])),
+        "fg_packaging_labeling_cost_per_unit": _format_numeric(
+            float(cost_basis["fg_packaging_labeling_cost_per_unit"])
+        ),
+        "ss_standard_cost_per_unit": _format_numeric(float(cost_basis["ss_standard_cost_per_unit"])),
+        "annual_inventory_carry_rate": _format_numeric(float(carrying_cost["annual_inventory_carry_rate"])),
+        "monthly_inventory_carry_rate": _format_numeric(float(carrying_cost["monthly_inventory_carry_rate"])),
+        "expired_inventory_writeoff_rate": _format_numeric(
+            float(expiry_writeoff["expired_inventory_writeoff_rate"])
+        ),
+        "expired_inventory_salvage_rate": _format_numeric(
+            float(expiry_writeoff["expired_inventory_salvage_rate"])
+        ),
+        "value_unmatched_fg_at_fg_standard_cost": _format_boolish(
+            bool(valuation_policy["value_unmatched_fg_at_fg_standard_cost"])
+        ),
+        "include_trade_node_fg_value": _format_boolish(bool(valuation_policy["include_trade_node_fg_value"])),
+        "use_matched_administrable_fg_value": _format_boolish(
+            bool(valuation_policy["use_matched_administrable_fg_value"])
+        ),
+        "phase6_enforce_unique_output_keys": _format_boolish(bool(validation["enforce_unique_output_keys"])),
+        "phase6_reconciliation_tolerance_value": _format_numeric(
+            float(validation["reconciliation_tolerance_value"])
+        ),
+        "us_fg_sub1_to_sub2_cost_per_unit": _format_numeric(
+            float(shipping_cold_chain.get("us_fg_sub1_to_sub2_cost_per_unit", 0.0))
+        ),
+        "eu_fg_sub1_to_sub2_cost_per_unit": _format_numeric(
+            float(shipping_cold_chain.get("eu_fg_sub1_to_sub2_cost_per_unit", 0.0))
+        ),
+        "us_ss_sub1_to_sub2_cost_per_unit": _format_numeric(
+            float(
+                shipping_cold_chain.get(
+                    "us_ss_sub1_to_sub2_cost_per_unit",
+                    shipping_cold_chain.get("us_fg_sub1_to_sub2_cost_per_unit", 0.0),
+                )
+            )
+        ),
+        "eu_ss_sub1_to_sub2_cost_per_unit": _format_numeric(
+            float(
+                shipping_cold_chain.get(
+                    "eu_ss_sub1_to_sub2_cost_per_unit",
+                    shipping_cold_chain.get("eu_fg_sub1_to_sub2_cost_per_unit", 0.0),
+                )
+            )
+        ),
+    }
 
 
 def _load_scenario_controls(
@@ -1167,6 +1300,20 @@ def _normalize_trade_future_hooks(
             "phase5_enforce_unique_output_keys": "",
             "phase5_reconcile_phase4_receipts": "",
             "phase5_reconciliation_tolerance_units": "",
+            "ds_standard_cost_basis_unit": "",
+            "ds_standard_cost_per_mg": "",
+            "dp_conversion_cost_per_unit": "",
+            "fg_packaging_labeling_cost_per_unit": "",
+            "ss_standard_cost_per_unit": "",
+            "annual_inventory_carry_rate": "",
+            "monthly_inventory_carry_rate": "",
+            "expired_inventory_writeoff_rate": "",
+            "expired_inventory_salvage_rate": "",
+            "value_unmatched_fg_at_fg_standard_cost": "",
+            "include_trade_node_fg_value": "",
+            "use_matched_administrable_fg_value": "",
+            "phase6_enforce_unique_output_keys": "",
+            "phase6_reconciliation_tolerance_value": "",
         }
 
         if trade_row_type == "scenario_default":
@@ -1684,6 +1831,148 @@ def _normalize_trade_future_hooks(
                         _parse_nonnegative_float(
                             row.get("phase5_reconciliation_tolerance_units", ""),
                             "phase5_reconciliation_tolerance_units",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ds_standard_cost_basis_unit": _require_nonempty(
+                        row,
+                        "ds_standard_cost_basis_unit",
+                        "Trade_Inventory_FutureHooks",
+                        index,
+                    ),
+                    "ds_standard_cost_per_mg": _format_numeric(
+                        _parse_positive_float(
+                            row.get("ds_standard_cost_per_mg", ""),
+                            "ds_standard_cost_per_mg",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "dp_conversion_cost_per_unit": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("dp_conversion_cost_per_unit", ""),
+                            "dp_conversion_cost_per_unit",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "fg_packaging_labeling_cost_per_unit": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("fg_packaging_labeling_cost_per_unit", ""),
+                            "fg_packaging_labeling_cost_per_unit",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "ss_standard_cost_per_unit": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("ss_standard_cost_per_unit", ""),
+                            "ss_standard_cost_per_unit",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "annual_inventory_carry_rate": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("annual_inventory_carry_rate", ""),
+                            "annual_inventory_carry_rate",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "monthly_inventory_carry_rate": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("monthly_inventory_carry_rate", ""),
+                            "monthly_inventory_carry_rate",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "expired_inventory_writeoff_rate": _format_numeric(
+                        _parse_probability(
+                            row.get("expired_inventory_writeoff_rate", ""),
+                            "expired_inventory_writeoff_rate",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "expired_inventory_salvage_rate": _format_numeric(
+                        _parse_probability(
+                            row.get("expired_inventory_salvage_rate", ""),
+                            "expired_inventory_salvage_rate",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "value_unmatched_fg_at_fg_standard_cost": _format_boolish(
+                        _parse_boolish(
+                            row.get("value_unmatched_fg_at_fg_standard_cost", ""),
+                            "value_unmatched_fg_at_fg_standard_cost",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "include_trade_node_fg_value": _format_boolish(
+                        _parse_boolish(
+                            row.get("include_trade_node_fg_value", ""),
+                            "include_trade_node_fg_value",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "use_matched_administrable_fg_value": _format_boolish(
+                        _parse_boolish(
+                            row.get("use_matched_administrable_fg_value", ""),
+                            "use_matched_administrable_fg_value",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "phase6_enforce_unique_output_keys": _format_boolish(
+                        _parse_boolish(
+                            row.get("phase6_enforce_unique_output_keys", ""),
+                            "phase6_enforce_unique_output_keys",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "phase6_reconciliation_tolerance_value": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("phase6_reconciliation_tolerance_value", ""),
+                            "phase6_reconciliation_tolerance_value",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "us_fg_sub1_to_sub2_cost_per_unit": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("us_fg_sub1_to_sub2_cost_per_unit", ""),
+                            "us_fg_sub1_to_sub2_cost_per_unit",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "eu_fg_sub1_to_sub2_cost_per_unit": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("eu_fg_sub1_to_sub2_cost_per_unit", ""),
+                            "eu_fg_sub1_to_sub2_cost_per_unit",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "us_ss_sub1_to_sub2_cost_per_unit": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("us_ss_sub1_to_sub2_cost_per_unit", ""),
+                            "us_ss_sub1_to_sub2_cost_per_unit",
+                            "Trade_Inventory_FutureHooks",
+                            index,
+                        )
+                    ),
+                    "eu_ss_sub1_to_sub2_cost_per_unit": _format_numeric(
+                        _parse_nonnegative_float(
+                            row.get("eu_ss_sub1_to_sub2_cost_per_unit", ""),
+                            "eu_ss_sub1_to_sub2_cost_per_unit",
                             "Trade_Inventory_FutureHooks",
                             index,
                         )
@@ -2292,6 +2581,120 @@ def _resolve_phase5_config(
     }
 
 
+def _resolve_phase6_config(
+    *,
+    product_rows: list[dict[str, str]],
+    yield_rows: list[dict[str, str]],
+    ss_rows: list[dict[str, str]],
+    trade_rows: list[dict[str, str]],
+) -> dict[str, object]:
+    active_product_rows = _active_rows(product_rows)
+    active_yield_rows = _active_rows(yield_rows)
+    active_ss_rows = _active_rows(ss_rows)
+    active_trade_rows = _active_rows(trade_rows)
+
+    product_default_row = _find_active_row(
+        active_product_rows,
+        sheet_name="Product_Parameters",
+        required_fields={"parameter_scope": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide an active scenario_default product row with module = ALL and geography_code = ALL.",
+    )
+    yield_default_row = _find_active_row(
+        active_yield_rows,
+        sheet_name="Yield_Assumptions",
+        required_fields={"parameter_scope": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide one active scenario_default yield row with module = ALL and geography_code = ALL.",
+    )
+    ss_default_row = _resolve_ss_default_row(active_ss_rows)
+    scenario_default_trade_row = _find_active_row(
+        active_trade_rows,
+        sheet_name="Trade_Inventory_FutureHooks",
+        required_fields={"trade_row_type": "scenario_default", "module": "ALL", "geography_code": "ALL"},
+        error_hint="Provide one active scenario_default row with module = ALL and geography_code = ALL.",
+    )
+
+    return {
+        "model": {
+            "phase": 6,
+            "build_scope": PHASE6_BUILD_SCOPE,
+            "upstream_value_contract": PHASE6_UPSTREAM_VALUE_CONTRACT,
+        },
+        "modules": {
+            "enabled": list(PHASE1_MODULES),
+            "disabled": list(PHASE6_DISABLED_CAPABILITIES),
+        },
+        "cost_basis": {
+            "ds_standard_cost_basis_unit": scenario_default_trade_row["ds_standard_cost_basis_unit"],
+            "ds_standard_cost_per_mg": float(scenario_default_trade_row["ds_standard_cost_per_mg"]),
+            "dp_conversion_cost_per_unit": float(scenario_default_trade_row["dp_conversion_cost_per_unit"]),
+            "fg_packaging_labeling_cost_per_unit": float(
+                scenario_default_trade_row["fg_packaging_labeling_cost_per_unit"]
+            ),
+            "ss_standard_cost_per_unit": float(scenario_default_trade_row["ss_standard_cost_per_unit"]),
+            "geography_fg_packaging_labeling_cost_overrides": {},
+        },
+        "carrying_cost": {
+            "annual_inventory_carry_rate": float(scenario_default_trade_row["annual_inventory_carry_rate"]),
+            "monthly_inventory_carry_rate": float(scenario_default_trade_row["monthly_inventory_carry_rate"]),
+        },
+        "expiry_writeoff": {
+            "expired_inventory_writeoff_rate": float(
+                scenario_default_trade_row["expired_inventory_writeoff_rate"]
+            ),
+            "expired_inventory_salvage_rate": float(
+                scenario_default_trade_row["expired_inventory_salvage_rate"]
+            ),
+        },
+        "valuation_policy": {
+            "value_unmatched_fg_at_fg_standard_cost": _parse_stored_bool(
+                scenario_default_trade_row["value_unmatched_fg_at_fg_standard_cost"]
+            ),
+            "include_trade_node_fg_value": _parse_stored_bool(
+                scenario_default_trade_row["include_trade_node_fg_value"]
+            ),
+            "use_matched_administrable_fg_value": _parse_stored_bool(
+                scenario_default_trade_row["use_matched_administrable_fg_value"]
+            ),
+        },
+        "shipping_cold_chain": {
+            "us_fg_sub1_to_sub2_cost_per_unit": float(
+                scenario_default_trade_row["us_fg_sub1_to_sub2_cost_per_unit"]
+            ),
+            "eu_fg_sub1_to_sub2_cost_per_unit": float(
+                scenario_default_trade_row["eu_fg_sub1_to_sub2_cost_per_unit"]
+            ),
+            "us_ss_sub1_to_sub2_cost_per_unit": float(
+                scenario_default_trade_row["us_ss_sub1_to_sub2_cost_per_unit"]
+            ),
+            "eu_ss_sub1_to_sub2_cost_per_unit": float(
+                scenario_default_trade_row["eu_ss_sub1_to_sub2_cost_per_unit"]
+            ),
+        },
+        "conversion": {
+            "dp_to_fg_yield": float(yield_default_row["dp_to_fg_yield"]),
+            "ds_to_dp_yield": float(yield_default_row["ds_to_dp_yield"]),
+            "ds_qty_per_dp_unit_mg": float(product_default_row["ds_qty_per_dp_unit_mg"]),
+            "ds_overage_factor": float(yield_default_row["ds_overage_factor"]),
+            "ss_ratio_to_fg": float(ss_default_row["ss_ratio_to_fg"]),
+        },
+        "validation": {
+            "enforce_unique_output_keys": _parse_stored_bool(
+                scenario_default_trade_row["phase6_enforce_unique_output_keys"]
+            ),
+            "reconciliation_tolerance_value": float(
+                scenario_default_trade_row["phase6_reconciliation_tolerance_value"]
+            ),
+        },
+        "wiring_notes": [
+            "Trade_Inventory_FutureHooks scenario_default row feeds active deterministic Phase 6 cost_basis, carrying_cost, expiry_writeoff, valuation_policy, and validation parameters.",
+            "Trade_Inventory_FutureHooks scenario_default row also feeds active deterministic Phase 6 geography-bucketed Sub-Layer 1 -> Sub-Layer 2 shipping/cold-chain cost parameters.",
+            "Product_Parameters scenario_default row feeds conversion.ds_qty_per_dp_unit_mg in the active deterministic Phase 6 config.",
+            "Yield_Assumptions scenario_default row feeds conversion.dp_to_fg_yield / conversion.ds_to_dp_yield / conversion.ds_overage_factor in the active deterministic Phase 6 config.",
+            "SS_Assumptions scenario default row feeds conversion.ss_ratio_to_fg in the active deterministic Phase 6 config.",
+        ],
+    }
+
+
 def _write_assumption_outputs(
     *,
     output_dir: Path,
@@ -2310,6 +2713,7 @@ def _write_assumption_outputs(
     resolved_phase3: dict[str, object],
     resolved_phase4: dict[str, object],
     resolved_phase5: dict[str, object],
+    resolved_phase6: dict[str, object],
     workbook_path: Path,
     warnings: list[str],
 ) -> dict[str, Path]:
@@ -2329,6 +2733,7 @@ def _write_assumption_outputs(
         "resolved_phase3_snapshot": output_dir / "resolved_phase3_config_snapshot.json",
         "resolved_phase4_snapshot": output_dir / "resolved_phase4_config_snapshot.json",
         "resolved_phase5_snapshot": output_dir / "resolved_phase5_config_snapshot.json",
+        "resolved_phase6_snapshot": output_dir / "resolved_phase6_config_snapshot.json",
         "import_summary": output_dir / "assumptions_import_summary.json",
         "generated_phase2_parameters": output_dir / "generated_phase2_parameters.toml",
         "generated_phase2_scenario": output_dir / "generated_phase2_scenario.toml",
@@ -2338,6 +2743,8 @@ def _write_assumption_outputs(
         "generated_phase4_scenario": output_dir / "generated_phase4_scenario.toml",
         "generated_phase5_parameters": output_dir / "generated_phase5_parameters.toml",
         "generated_phase5_scenario": output_dir / "generated_phase5_scenario.toml",
+        "generated_phase6_parameters": output_dir / "generated_phase6_parameters.toml",
+        "generated_phase6_scenario": output_dir / "generated_phase6_scenario.toml",
     }
     _write_csv(file_paths["scenario_controls"], SCENARIO_CONTROLS_HEADERS, scenario_controls_rows)
     _write_csv(file_paths["launch_timing"], LAUNCH_TIMING_HEADERS, launch_timing_rows)
@@ -2395,6 +2802,16 @@ def _write_assumption_outputs(
         ),
         encoding="utf-8",
     )
+    file_paths["resolved_phase6_snapshot"].write_text(
+        json.dumps(
+            {
+                "scenario_name": context.scenario_name,
+                "resolved_phase6": resolved_phase6,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     _write_generated_phase2_parameters(
         file_paths["generated_phase2_parameters"],
@@ -2436,6 +2853,16 @@ def _write_assumption_outputs(
         parameter_config_path=file_paths["generated_phase5_parameters"],
         scenario_output_path=file_paths["generated_phase5_scenario"],
     )
+    _write_generated_phase6_parameters(
+        file_paths["generated_phase6_parameters"],
+        resolved_phase6,
+    )
+    _write_generated_phase6_scenario(
+        output_dir=output_dir,
+        scenario_name=context.scenario_name,
+        parameter_config_path=file_paths["generated_phase6_parameters"],
+        scenario_output_path=file_paths["generated_phase6_scenario"],
+    )
 
     summary_payload = {
         "workbook_path": str(workbook_path),
@@ -2470,6 +2897,7 @@ def _write_assumption_outputs(
             "Trade_Inventory_FutureHooks scenario_default / geography_default / launch_event rows -> active deterministic Phase 3 config generation",
             "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 4 config generation",
             "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 5 config generation",
+            "Trade_Inventory_FutureHooks scenario_default row plus Product_Parameters / Yield_Assumptions / SS_Assumptions scenario defaults -> active deterministic Phase 6 config generation",
         ],
         "future_ready_only": [
             "Launch_Timing normalized only; not yet wired into active engine logic.",
@@ -2477,7 +2905,7 @@ def _write_assumption_outputs(
             "Product_Parameters module_override ds_qty_per_dp_unit_mg rows are preserved but not yet consumed by the current engine.",
             "Yield_Assumptions module_override ds_overage_factor rows are preserved but not yet consumed by the current engine.",
             "dp_concentration_mg_per_ml and dp_fill_volume_ml are preserved but not yet consumed by the current engine.",
-            "Broader future-phase execution, financial, and Monte Carlo logic remains deferred even though the assumptions workbook now feeds the active deterministic Phase 3, Phase 4, and Phase 5 configs.",
+            "Broader future-phase revenue, Monte Carlo, and optimization logic remains deferred even though the assumptions workbook now feeds the active deterministic Phase 3, Phase 4, Phase 5, and Phase 6 configs.",
         ],
         "warnings": warnings,
     }
@@ -2911,6 +3339,125 @@ def _write_generated_phase5_scenario(
                 f'inventory_detail = "{detail_ref}"',
                 f'monthly_inventory_summary = "{summary_ref}"',
                 f'cohort_audit = "{cohort_ref}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_generated_phase6_parameters(path: Path, resolved_phase6: dict[str, object]) -> None:
+    model = resolved_phase6["model"]
+    modules = resolved_phase6["modules"]
+    cost_basis = resolved_phase6["cost_basis"]
+    carrying_cost = resolved_phase6["carrying_cost"]
+    expiry_writeoff = resolved_phase6["expiry_writeoff"]
+    valuation_policy = resolved_phase6["valuation_policy"]
+    shipping_cold_chain = resolved_phase6["shipping_cold_chain"]
+    conversion = resolved_phase6["conversion"]
+    validation = resolved_phase6["validation"]
+    geography_overrides = cost_basis.get("geography_fg_packaging_labeling_cost_overrides", {})
+
+    lines = [
+        "# GENERATED BY scripts/assumptions_import.py",
+        "# Business-facing assumptions workbook bridge into the current Phase 6 config path.",
+        "",
+        "[model]",
+        f'phase = {model["phase"]}',
+        f'build_scope = "{model["build_scope"]}"',
+        f'upstream_value_contract = "{model["upstream_value_contract"]}"',
+        "",
+        "[modules]",
+        f'enabled = {_toml_list(modules["enabled"])}',
+        f'disabled = {_toml_list(modules["disabled"])}',
+        "",
+        "[cost_basis]",
+        f'ds_standard_cost_basis_unit = "{cost_basis["ds_standard_cost_basis_unit"]}"',
+        f'ds_standard_cost_per_mg = {cost_basis["ds_standard_cost_per_mg"]}',
+        f'dp_conversion_cost_per_unit = {cost_basis["dp_conversion_cost_per_unit"]}',
+        f'fg_packaging_labeling_cost_per_unit = {cost_basis["fg_packaging_labeling_cost_per_unit"]}',
+        f'ss_standard_cost_per_unit = {cost_basis["ss_standard_cost_per_unit"]}',
+        "",
+    ]
+    if geography_overrides:
+        lines.append("[geography_fg_packaging_labeling_cost_overrides]")
+        for geography_code, value in geography_overrides.items():
+            lines.append(f'{geography_code} = {value}')
+        lines.append("")
+    lines.extend(
+        [
+            "[carrying_cost]",
+            f'annual_inventory_carry_rate = {carrying_cost["annual_inventory_carry_rate"]}',
+            f'monthly_inventory_carry_rate = {carrying_cost["monthly_inventory_carry_rate"]}',
+            "",
+            "[expiry_writeoff]",
+            f'expired_inventory_writeoff_rate = {expiry_writeoff["expired_inventory_writeoff_rate"]}',
+            f'expired_inventory_salvage_rate = {expiry_writeoff["expired_inventory_salvage_rate"]}',
+            "",
+            "[valuation_policy]",
+            f'value_unmatched_fg_at_fg_standard_cost = {_toml_bool(valuation_policy["value_unmatched_fg_at_fg_standard_cost"])}',
+            f'include_trade_node_fg_value = {_toml_bool(valuation_policy["include_trade_node_fg_value"])}',
+            f'use_matched_administrable_fg_value = {_toml_bool(valuation_policy["use_matched_administrable_fg_value"])}',
+            "",
+            "[shipping_cold_chain]",
+            f'us_fg_sub1_to_sub2_cost_per_unit = {shipping_cold_chain["us_fg_sub1_to_sub2_cost_per_unit"]}',
+            f'eu_fg_sub1_to_sub2_cost_per_unit = {shipping_cold_chain["eu_fg_sub1_to_sub2_cost_per_unit"]}',
+            f'us_ss_sub1_to_sub2_cost_per_unit = {shipping_cold_chain["us_ss_sub1_to_sub2_cost_per_unit"]}',
+            f'eu_ss_sub1_to_sub2_cost_per_unit = {shipping_cold_chain["eu_ss_sub1_to_sub2_cost_per_unit"]}',
+            "",
+            "[conversion]",
+            f'dp_to_fg_yield = {conversion["dp_to_fg_yield"]}',
+            f'ds_to_dp_yield = {conversion["ds_to_dp_yield"]}',
+            f'ds_qty_per_dp_unit_mg = {conversion["ds_qty_per_dp_unit_mg"]}',
+            f'ds_overage_factor = {conversion["ds_overage_factor"]}',
+            f'ss_ratio_to_fg = {conversion["ss_ratio_to_fg"]}',
+            "",
+            "[validation]",
+            f'enforce_unique_output_keys = {_toml_bool(validation["enforce_unique_output_keys"])}',
+            f'reconciliation_tolerance_value = {validation["reconciliation_tolerance_value"]}',
+            "",
+        ]
+    )
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_generated_phase6_scenario(
+    *,
+    output_dir: Path,
+    scenario_name: str,
+    parameter_config_path: Path,
+    scenario_output_path: Path,
+) -> None:
+    default_phase4_summary = output_dir.parent / "phase4_monthly_summary.csv"
+    default_phase5_detail = output_dir.parent / "phase5_inventory_detail.csv"
+    default_phase5_summary = output_dir.parent / "phase5_monthly_summary.csv"
+    financial_detail_output = output_dir.parent / "phase6_financial_detail.csv"
+    monthly_summary_output = output_dir.parent / "phase6_monthly_financial_summary.csv"
+    annual_summary_output = output_dir.parent / "phase6_annual_financial_summary.csv"
+    parameter_ref = _relative_path_for_toml(parameter_config_path, start=output_dir)
+    phase4_ref = _relative_path_for_toml(default_phase4_summary, start=output_dir)
+    phase5_detail_ref = _relative_path_for_toml(default_phase5_detail, start=output_dir)
+    phase5_summary_ref = _relative_path_for_toml(default_phase5_summary, start=output_dir)
+    detail_ref = _relative_path_for_toml(financial_detail_output, start=output_dir)
+    monthly_ref = _relative_path_for_toml(monthly_summary_output, start=output_dir)
+    annual_ref = _relative_path_for_toml(annual_summary_output, start=output_dir)
+    scenario_output_path.write_text(
+        "\n".join(
+            [
+                "# GENERATED BY scripts/assumptions_import.py",
+                "# Use directly with scripts/run_phase6.py or let scripts/run_forecast_workflow.py consume it.",
+                f'scenario_name = "{scenario_name}"',
+                f'parameter_config = "{parameter_ref}"',
+                "",
+                "[inputs]",
+                f'phase4_monthly_summary = "{phase4_ref}"',
+                f'phase5_inventory_detail = "{phase5_detail_ref}"',
+                f'phase5_monthly_inventory_summary = "{phase5_summary_ref}"',
+                "",
+                "[outputs]",
+                f'financial_detail = "{detail_ref}"',
+                f'monthly_financial_summary = "{monthly_ref}"',
+                f'annual_financial_summary = "{annual_ref}"',
                 "",
             ]
         ),

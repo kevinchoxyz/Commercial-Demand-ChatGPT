@@ -62,6 +62,7 @@ def load_phase5_inventory_detail(path: Path) -> tuple[Phase5FinancialDetailInput
             "month_index",
             "calendar_month",
             "material_node",
+            "issues",
             "available_nonexpired_inventory",
             "expired_quantity",
             "matched_administrable_fg_units",

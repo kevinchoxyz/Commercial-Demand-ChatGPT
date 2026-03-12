@@ -5,6 +5,7 @@ import pytest
 
 from cbx250_model.phase6.config_schema import load_phase6_config
 from cbx250_model.phase6.runner import run_phase6_scenario
+from cbx250_model.phase6.summary import build_phase6_run_summary
 from cbx250_model.phase6.writer import (
     write_phase6_annual_summary,
     write_phase6_financial_detail,
@@ -36,6 +37,10 @@ def test_phase6_checked_in_base_config_uses_expected_defaults() -> None:
     assert config.carrying_cost.monthly_inventory_carry_rate == pytest.approx(0.0166666666666667)
     assert config.expiry_writeoff.expired_inventory_writeoff_rate == pytest.approx(1.0)
     assert config.valuation_policy.include_trade_node_fg_value is True
+    assert config.shipping_cold_chain.us_fg_sub1_to_sub2_cost_per_unit == pytest.approx(25.0)
+    assert config.shipping_cold_chain.eu_fg_sub1_to_sub2_cost_per_unit == pytest.approx(57.5)
+    assert config.shipping_cold_chain.us_ss_sub1_to_sub2_cost_per_unit == pytest.approx(25.0)
+    assert config.shipping_cold_chain.eu_ss_sub1_to_sub2_cost_per_unit == pytest.approx(57.5)
 
 
 def test_phase6_standard_cost_inventory_and_release_values_are_correct(tmp_path: Path) -> None:
@@ -150,6 +155,110 @@ def test_phase6_trade_node_value_can_be_excluded_without_breaking_other_values(t
     assert row.total_inventory_value == pytest.approx(5.0)
 
 
+def test_phase6_shipping_cold_chain_cost_uses_actual_sublayer1_to_sublayer2_shipments_by_region(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_phase6_scenario(
+        tmp_path,
+        scenario_name="SHIP_COST",
+        dp_conversion_cost_per_unit=0.0,
+        fg_packaging_labeling_cost_per_unit=2.0,
+        us_fg_sub1_to_sub2_cost_per_unit=20.0,
+        eu_fg_sub1_to_sub2_cost_per_unit=50.0,
+        us_ss_sub1_to_sub2_cost_per_unit=20.0,
+        eu_ss_sub1_to_sub2_cost_per_unit=50.0,
+        ss_ratio_to_fg=1.0,
+        dp_to_fg_yield=1.0,
+        ds_to_dp_yield=1.0,
+        ds_qty_per_dp_unit_mg=1.0,
+        ds_overage_factor=0.0,
+        phase5_inventory_detail_rows=[
+            "SHIP_COST,US,ALL,1,2029-01-01,SubLayer1_FG,0,0,10,0,0,0,0,0,0,0,0,0,0,0,false,false,false,false,0,0,fixture",
+            "SHIP_COST,EU,ALL,1,2029-01-01,SubLayer1_FG,0,0,8,0,0,0,0,0,0,0,0,0,0,0,false,false,false,false,0,0,fixture",
+        ],
+        phase5_monthly_inventory_summary_rows=[
+            "SHIP_COST,US,ALL,1,2029-01-01,0,0,0,0,0,0,0,0,0,0,0,0,false,false,false,false,fixture",
+            "SHIP_COST,EU,ALL,1,2029-01-01,0,0,0,0,0,0,0,0,0,0,0,0,false,false,false,false,fixture",
+        ],
+    )
+
+    result = run_phase6_scenario(scenario_path)
+    us_row = _monthly_row(result, "US", "ALL", 1)
+    eu_row = _monthly_row(result, "EU", "ALL", 1)
+    us_fg_shipping = next(
+        row
+        for row in result.financial_detail
+        if row.geography_code == "US" and row.financial_node_or_stage == "FG_Sub1_to_Sub2_Shipping"
+    )
+    eu_fg_shipping = next(
+        row
+        for row in result.financial_detail
+        if row.geography_code == "EU" and row.financial_node_or_stage == "FG_Sub1_to_Sub2_Shipping"
+    )
+    us_ss_shipping = next(
+        row
+        for row in result.financial_detail
+        if row.geography_code == "US" and row.financial_node_or_stage == "SS_Sub1_to_Sub2_Shipping"
+    )
+
+    assert not result.validation.has_errors
+    assert us_fg_shipping.shipment_quantity_basis_units == pytest.approx(10.0)
+    assert us_fg_shipping.shipping_cold_chain_cost_rate == pytest.approx(20.0)
+    assert us_fg_shipping.shipping_cold_chain_cost_value == pytest.approx(200.0)
+    assert eu_fg_shipping.shipment_quantity_basis_units == pytest.approx(8.0)
+    assert eu_fg_shipping.shipping_cold_chain_cost_rate == pytest.approx(50.0)
+    assert eu_fg_shipping.shipping_cold_chain_cost_value == pytest.approx(400.0)
+    assert us_ss_shipping.shipping_cold_chain_cost_value == pytest.approx(200.0)
+    assert us_row.fg_shipping_cold_chain_cost == pytest.approx(200.0)
+    assert us_row.ss_shipping_cold_chain_cost == pytest.approx(200.0)
+    assert us_row.total_shipping_cold_chain_cost == pytest.approx(400.0)
+    assert eu_row.total_shipping_cold_chain_cost == pytest.approx(800.0)
+
+
+def test_phase6_no_sublayer1_shipment_means_zero_shipping_cost_and_no_packaging_double_count(
+    tmp_path: Path,
+) -> None:
+    scenario_path = write_phase6_scenario(
+        tmp_path,
+        scenario_name="NO_SHIP",
+        dp_conversion_cost_per_unit=0.0,
+        fg_packaging_labeling_cost_per_unit=3.0,
+        us_fg_sub1_to_sub2_cost_per_unit=25.0,
+        us_ss_sub1_to_sub2_cost_per_unit=25.0,
+        dp_to_fg_yield=1.0,
+        ds_to_dp_yield=1.0,
+        ds_qty_per_dp_unit_mg=1.0,
+        ds_overage_factor=0.0,
+        phase4_monthly_summary_rows=[
+            "NO_SHIP,US,ALL,1,2029-01-01,0,0,0,0,0,5,0,0,0,0,0,0,0,0,false,false,false,false,false,false,fixture",
+        ],
+        phase5_inventory_detail_rows=[
+            "NO_SHIP,US,ALL,1,2029-01-01,SubLayer1_FG,0,0,0,0,0,0,0,0,0,0,0,0,0,0,false,false,false,false,0,0,fixture",
+        ],
+        phase5_monthly_inventory_summary_rows=[
+            "NO_SHIP,US,ALL,1,2029-01-01,0,0,0,0,0,0,0,0,0,0,0,0,false,false,false,false,fixture",
+        ],
+    )
+
+    result = run_phase6_scenario(scenario_path)
+    row = _monthly_row(result, "US", "ALL", 1)
+    fg_release_row = next(
+        detail
+        for detail in result.financial_detail
+        if detail.geography_code == "US" and detail.financial_node_or_stage == "FG_Release"
+    )
+    fg_shipping_row = next(
+        detail
+        for detail in result.financial_detail
+        if detail.geography_code == "US" and detail.financial_node_or_stage == "FG_Sub1_to_Sub2_Shipping"
+    )
+
+    assert not result.validation.has_errors
+    assert fg_release_row.release_value == pytest.approx(15.01)
+    assert fg_shipping_row.shipping_cold_chain_cost_value == pytest.approx(0.0)
+    assert row.total_shipping_cold_chain_cost == pytest.approx(0.0)
+
+
 def test_phase6_output_keys_are_unique_and_writers_emit_machine_readable_csv(tmp_path: Path) -> None:
     scenario_path = write_phase6_scenario(
         tmp_path,
@@ -179,5 +288,29 @@ def test_phase6_output_keys_are_unique_and_writers_emit_machine_readable_csv(tmp
     assert len({row.key for row in result.monthly_summary}) == len(result.monthly_summary)
     assert len({row.key for row in result.annual_summary}) == len(result.annual_summary)
     assert "financial_node_or_stage" in detail_rows[0]
+    assert "shipping_cold_chain_cost_value" in detail_rows[0]
     assert "total_inventory_value" in monthly_rows[0]
+    assert "total_shipping_cold_chain_cost" in monthly_rows[0]
     assert "calendar_year" in annual_rows[0]
+
+
+def test_phase6_carrying_cost_interpretation_note_is_explicit_for_cumulative_metric(tmp_path: Path) -> None:
+    scenario_path = write_phase6_scenario(
+        tmp_path,
+        scenario_name="CARRY_NOTE",
+        monthly_inventory_carry_rate=0.6,
+        phase5_inventory_detail_rows=[
+            "CARRY_NOTE,US,ALL,1,2029-01-01,FG_Central,0,0,0,0,10,10,0,0,0,0,10,10,0,0,false,false,false,false,0,0,fixture",
+            "CARRY_NOTE,US,ALL,2,2029-02-01,FG_Central,0,0,0,0,10,10,0,0,0,0,10,10,0,0,false,false,false,false,0,0,fixture",
+        ],
+        phase5_monthly_inventory_summary_rows=[
+            "CARRY_NOTE,US,ALL,1,2029-01-01,0,0,10,0,0,0,0,0,0,0,0,0,false,false,false,false,fixture",
+            "CARRY_NOTE,US,ALL,2,2029-02-01,0,0,10,0,0,0,0,0,0,0,0,0,false,false,false,false,fixture",
+        ],
+    )
+
+    result = run_phase6_scenario(scenario_path)
+    summary = build_phase6_run_summary(result)
+
+    assert summary["carrying_cost_exceeds_ending_inventory_value"] is True
+    assert "cumulative across monthly periods" in summary["carrying_cost_interpretation_note"]

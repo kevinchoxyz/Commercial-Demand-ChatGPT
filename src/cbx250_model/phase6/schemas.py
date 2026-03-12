@@ -47,6 +47,7 @@ class Phase5FinancialDetailInputRecord:
     month_index: int
     calendar_month: date
     material_node: str
+    issues: float
     available_nonexpired_inventory: float
     expired_quantity: float
     matched_administrable_fg_units: float
@@ -76,6 +77,7 @@ class Phase5FinancialDetailInputRecord:
             month_index=int(row["month_index"]),
             calendar_month=date.fromisoformat(row["calendar_month"]),
             material_node=row["material_node"],
+            issues=float(row.get("issues", 0.0)),
             available_nonexpired_inventory=float(row["available_nonexpired_inventory"]),
             expired_quantity=float(row["expired_quantity"]),
             matched_administrable_fg_units=float(row.get("matched_administrable_fg_units", 0.0)),
@@ -156,6 +158,9 @@ class FinancialDetailRecord:
     quantity_basis: str
     quantity_value: float
     standard_cost_rate: float
+    shipment_quantity_basis_units: float
+    shipping_cold_chain_cost_rate: float
+    shipping_cold_chain_cost_value: float
     inventory_value: float
     release_value: float
     expired_value: float
@@ -185,6 +190,9 @@ class FinancialDetailRecord:
             "quantity_basis": self.quantity_basis,
             "quantity_value": self.quantity_value,
             "standard_cost_rate": self.standard_cost_rate,
+            "shipment_quantity_basis_units": self.shipment_quantity_basis_units,
+            "shipping_cold_chain_cost_rate": self.shipping_cold_chain_cost_rate,
+            "shipping_cold_chain_cost_value": self.shipping_cold_chain_cost_value,
             "inventory_value": self.inventory_value,
             "release_value": self.release_value,
             "expired_value": self.expired_value,
@@ -214,6 +222,9 @@ class FinancialMonthlySummaryRecord:
     fg_release_value: float
     ss_release_value: float
     total_release_value: float
+    fg_shipping_cold_chain_cost: float
+    ss_shipping_cold_chain_cost: float
+    total_shipping_cold_chain_cost: float
     expired_ds_value: float
     expired_dp_value: float
     expired_fg_value: float
@@ -256,6 +267,9 @@ class FinancialMonthlySummaryRecord:
             "fg_release_value": self.fg_release_value,
             "ss_release_value": self.ss_release_value,
             "total_release_value": self.total_release_value,
+            "fg_shipping_cold_chain_cost": self.fg_shipping_cold_chain_cost,
+            "ss_shipping_cold_chain_cost": self.ss_shipping_cold_chain_cost,
+            "total_shipping_cold_chain_cost": self.total_shipping_cold_chain_cost,
             "expired_ds_value": self.expired_ds_value,
             "expired_dp_value": self.expired_dp_value,
             "expired_fg_value": self.expired_fg_value,
@@ -285,6 +299,7 @@ class FinancialAnnualSummaryRecord:
     calendar_year: int
     ending_total_inventory_value: float
     total_release_value: float
+    total_shipping_cold_chain_cost: float
     total_expired_value: float
     total_carrying_cost: float
     ending_matched_administrable_fg_value: float
@@ -307,6 +322,7 @@ class FinancialAnnualSummaryRecord:
             "calendar_year": self.calendar_year,
             "ending_total_inventory_value": self.ending_total_inventory_value,
             "total_release_value": self.total_release_value,
+            "total_shipping_cold_chain_cost": self.total_shipping_cold_chain_cost,
             "total_expired_value": self.total_expired_value,
             "total_carrying_cost": self.total_carrying_cost,
             "ending_matched_administrable_fg_value": self.ending_matched_administrable_fg_value,

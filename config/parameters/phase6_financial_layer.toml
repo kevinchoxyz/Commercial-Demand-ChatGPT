@@ -29,6 +29,14 @@ value_unmatched_fg_at_fg_standard_cost = true
 include_trade_node_fg_value = true
 use_matched_administrable_fg_value = true
 
+[shipping_cold_chain]
+# PLACEHOLDER deterministic baseline cold-chain last-mile delivery assumptions.
+# Costs apply to geography-specific Sub-Layer 1 -> Sub-Layer 2 shipment units only.
+us_fg_sub1_to_sub2_cost_per_unit = 25.0
+eu_fg_sub1_to_sub2_cost_per_unit = 57.5
+us_ss_sub1_to_sub2_cost_per_unit = 25.0
+eu_ss_sub1_to_sub2_cost_per_unit = 57.5
+
 [conversion]
 dp_to_fg_yield = 0.98
 ds_to_dp_yield = 0.90
