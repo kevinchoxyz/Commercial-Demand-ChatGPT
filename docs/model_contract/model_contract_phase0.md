@@ -54,7 +54,7 @@ CML v1 rule:
 10. Board and executive outputs
 
 Current repo implementation boundary:
-- build steps 1 to 7
+- build steps 1 to 8
 - keep later steps as placeholders
 
 ## 3. Phase 1-Relevant Parameter Map
@@ -183,6 +183,27 @@ Current repo implementation boundary:
   - expired quantities
   - unmatched FG units
 
+### 4.8 Phase 6 Output Contract
+- deterministic financial/value layer consumes accepted Phase 4 monthly summary plus accepted Phase 5 inventory detail and monthly summary outputs
+- machine-readable detail output is at `scenario x geography x module x month x financial_node_or_stage` with:
+  - quantity basis
+  - quantity value
+  - standard cost rate
+  - inventory value
+  - release value
+  - expired value
+  - carrying cost value
+  - matched administrable FG value
+  - unmatched FG value at risk
+- monthly financial summary provides at least:
+  - inventory value by stage/node
+  - release value by stage
+  - expiry/write-off value
+  - carrying cost
+  - matched administrable FG value
+  - unmatched FG value at risk
+  - upstream operational flags copied for context
+
 ## 5. Validation Rules
 
 ### Hard Checks
@@ -206,12 +227,12 @@ Current repo implementation boundary:
 - deterministic trade layer consuming accepted Phase 2 FG outputs
 - deterministic production scheduling consuming accepted Phase 3 ex-factory FG outputs
 - deterministic inventory and shelf-life consuming accepted Phase 3 trade flow signals and accepted Phase 4 supply receipts
+- deterministic financial/value layer consuming accepted Phase 4 release outputs and accepted Phase 5 inventory outputs
 - validation framework
 - unit tests
 - example configs and sample input files
 
 ## 7. Explicitly Out Of Scope For The First Pass
-- financials
 - Monte Carlo / stochastic simulation
 - downstream reporting rollups
 

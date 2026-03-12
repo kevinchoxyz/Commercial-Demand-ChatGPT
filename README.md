@@ -1,6 +1,6 @@
 # CBX-250 Commercial Planning Model
 
-This repository contains the accepted Phase 1 deterministic demand foundation, the deterministic Phase 2 dose and unit cascade, the deterministic Phase 3 trade / channel-fill layer, the deterministic Phase 4 production scheduling layer, and the deterministic Phase 5 inventory and shelf-life layer for the CBX-250 commercial planning model. Later-phase capabilities remain explicit placeholders.
+This repository contains the accepted Phase 1 deterministic demand foundation, the deterministic Phase 2 dose and unit cascade, the deterministic Phase 3 trade / channel-fill layer, the deterministic Phase 4 production scheduling layer, the deterministic Phase 5 inventory and shelf-life layer, and the deterministic Phase 6 financial/value layer for the CBX-250 commercial planning model. Later-phase capabilities remain explicit placeholders.
 
 ## Read These Files First
 - `docs/model_contract/model_contract_phase0.md`
@@ -15,6 +15,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - Deterministic Phase 3 trade / channel-fill layer
 - Deterministic Phase 4 production scheduling
 - Deterministic Phase 5 inventory and shelf-life
+- Deterministic Phase 6 financial/value layer
 - Monthly 240-month horizon
 - Config-driven setup
 - Demand logic for AML, MDS, CML Incident, and CML Prevalent
@@ -22,6 +23,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - Phase 3 trade outputs for patient FG demand, Sub-Layer 2 pull, and ex-factory FG demand
 - Phase 4 schedule outputs for DS, DP, FG, and SS starts/releases
 - Phase 5 rolling inventory outputs for DS, DP, FG, SS, Sub-Layer 1 FG, and Sub-Layer 2 FG
+- Phase 6 deterministic financial outputs for inventory value, release value, carrying cost, and expiry/write-off exposure
 - Configurable commercial forecast grain:
   - `module_level`
   - `segment_level`
@@ -37,6 +39,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `python -m pytest tests/test_phase3_runner.py tests/test_phase3_acceptance.py`
 - `python -m pytest tests/test_phase4_runner.py tests/test_phase4_acceptance.py`
 - `python -m pytest tests/test_phase5_runner.py tests/test_phase5_acceptance.py`
+- `python -m pytest tests/test_phase6_runner.py tests/test_phase6_acceptance.py`
 - `python -m pytest tests/test_forecast_workflow.py`
 - `python -m pytest tests/test_assumptions_template.py tests/test_assumptions_import.py`
 - `python scripts/run_phase1.py --scenario config/scenarios/base_phase1.toml`
@@ -50,6 +53,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `python scripts/run_phase3.py --scenario config/scenarios/base_phase3.toml`
 - `python scripts/run_phase4.py --scenario config/scenarios/base_phase4.toml`
 - `python scripts/run_phase5.py --scenario config/scenarios/base_phase5.toml`
+- `python scripts/run_phase6.py --scenario config/scenarios/base_phase6.toml`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_REAL.xlsx" --scenario-name "REAL_2029" --overwrite`
 - `python scripts/run_forecast_workflow.py --workbook "data/raw/CBX250_Commercial_Forecast_Baseline.xlsx" --assumptions-workbook "data/raw/CBX250_Model_Assumptions_Baseline.xlsx" --scenario-name "Baseline" --output-dir "data/outputs/baseline" --run-phase5 --overwrite`
 
@@ -522,6 +526,7 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - Run the Phase 3 business acceptance layer with `python -m pytest tests/test_phase3_runner.py tests/test_phase3_acceptance.py`.
 - Run the Phase 4 business acceptance layer with `python -m pytest tests/test_phase4_runner.py tests/test_phase4_acceptance.py`.
 - Run the Phase 5 business acceptance layer with `python -m pytest tests/test_phase5_runner.py tests/test_phase5_acceptance.py`.
+- Run the Phase 6 business acceptance layer with `python -m pytest tests/test_phase6_runner.py tests/test_phase6_acceptance.py`.
 - The acceptance suite validates workbook import reconciliation for all `forecast_grain x forecast_frequency` combinations, both `demand_basis` modes, authoritative `monthlyized_output.csv` generation, runner consistency against normalized monthly outputs, calendar horizon coverage, output-key uniqueness, actionable validation context, and the current Phase 1 CML prevalent guardrails.
 
 ## Phase 1 Demand Basis
@@ -557,8 +562,45 @@ This repository contains the accepted Phase 1 deterministic demand foundation, t
 - `exhaustion_rule` is captured and audited, but Phase 1 does not implement a full dynamic depletion or remainder engine.
 - Current Phase 1 behavior relies only on supplied annual totals, `launch_month_index`, `duration_months`, and profile logic. Fuller depletion mechanics are deferred.
 
-## Deferred Beyond Phase 5
-- financials
+## Phase 6 Deterministic Financial / Value Layer
+- Phase 6 consumes accepted `phase4_monthly_summary.csv`, `phase5_inventory_detail.csv`, and `phase5_monthly_summary.csv`.
+- It is deterministic and standard-cost based. It is not a booked-accounting or GAAP financial model.
+- Current deterministic placeholder financial assumptions live in:
+  - `config/parameters/phase6_financial_layer.toml`
+  - `config/scenarios/base_phase6.toml`
+- Phase 6 values:
+  - inventory by stage/node
+  - stage release exposure
+  - expiry/write-off exposure
+  - carrying cost exposure
+  - matched administrable FG value
+  - unmatched FG value at risk
+- Current cost-stack design:
+  - DS value uses `ds_standard_cost_per_mg`
+  - DP value uses embedded DS input cost plus `dp_conversion_cost_per_unit`
+  - FG and trade-node FG value use embedded DP cost plus `fg_packaging_labeling_cost_per_unit`
+  - SS value uses `ss_standard_cost_per_unit`
+- Current carrying-cost design:
+  - deterministic monthly carrying cost = ending inventory value × `monthly_inventory_carry_rate`
+  - base config keeps `monthly_inventory_carry_rate = annual_inventory_carry_rate / 12`
+- Current expiry/write-off design:
+  - expired value = expired quantity × stage/node standard cost × `expired_inventory_writeoff_rate` × `(1 - expired_inventory_salvage_rate)`
+- To avoid DS/DP/FG stage double counting, `total_release_value` in the monthly and annual summary is defined as FG release value + SS release value only.
+- Authoritative Phase 6 outputs:
+  - `phase6_financial_detail.csv`
+  - `phase6_monthly_financial_summary.csv`
+  - `phase6_annual_financial_summary.csv`
+- Run the checked-in sample Phase 6 scenario with:
+  - `python scripts/run_phase6.py --scenario config/scenarios/base_phase6.toml`
+- Run the real FixedBaseline Phase 6 scenario after the physical workflow completes with:
+  - `python scripts/run_phase6.py --scenario config/scenarios/fixedbaseline_phase6.toml`
+- Remaining out of scope in this layer:
+  - revenue / net sales forecasting
+  - booked accounting treatment
+  - Monte Carlo or probabilistic financial risk
+  - optimization and dashboarding
+
+## Deferred Beyond Phase 6
 - stochastic expiry, lead times, and manufacturing performance yields
 - Monte Carlo
 - allocation optimization

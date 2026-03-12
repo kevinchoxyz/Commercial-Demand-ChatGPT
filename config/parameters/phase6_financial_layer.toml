@@ -1,0 +1,41 @@
+[model]
+phase = 6
+build_scope = "deterministic_financial_value_layer"
+upstream_value_contract = "phase4_monthly_summary.csv + phase5_inventory_outputs.csv"
+
+[modules]
+enabled = ["AML", "MDS", "CML_Incident", "CML_Prevalent"]
+disabled = ["revenue_forecast", "monte_carlo", "allocation_optimization", "dashboard_ui"]
+
+[cost_basis]
+# PLACEHOLDER deterministic baseline planning costs until approved financial standards are loaded.
+ds_standard_cost_basis_unit = "mg"
+ds_standard_cost_per_mg = 0.002
+dp_conversion_cost_per_unit = 0.50
+fg_packaging_labeling_cost_per_unit = 0.25
+ss_standard_cost_per_unit = 0.10
+
+[carrying_cost]
+# PLACEHOLDER deterministic baseline carry policy.
+annual_inventory_carry_rate = 0.20
+monthly_inventory_carry_rate = 0.0166666666666667
+
+[expiry_writeoff]
+expired_inventory_writeoff_rate = 1.0
+expired_inventory_salvage_rate = 0.0
+
+[valuation_policy]
+value_unmatched_fg_at_fg_standard_cost = true
+include_trade_node_fg_value = true
+use_matched_administrable_fg_value = true
+
+[conversion]
+dp_to_fg_yield = 0.98
+ds_to_dp_yield = 0.90
+ds_qty_per_dp_unit_mg = 1.0
+ds_overage_factor = 0.05
+ss_ratio_to_fg = 1.0
+
+[validation]
+enforce_unique_output_keys = true
+reconciliation_tolerance_value = 0.000001

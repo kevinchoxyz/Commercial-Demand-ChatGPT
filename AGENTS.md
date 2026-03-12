@@ -14,7 +14,7 @@ Use this precedence order for implementation decisions:
 5. temporary development defaults marked clearly as `PLACEHOLDER`
 
 ## Current Implemented Scope
-Build and maintain the accepted deterministic Phase 1, Phase 2, Phase 3, Phase 4, and Phase 5 baseline only.
+Build and maintain the accepted deterministic Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, and Phase 6 baseline only.
 
 Included:
 - repository scaffold
@@ -33,11 +33,12 @@ Included:
 - deterministic schedule outputs for DS, DP, FG, and SS starts/releases
 - deterministic inventory and shelf-life layer consuming accepted Phase 3 and Phase 4 outputs
 - deterministic rolling balances for DS, DP, FG, SS, Sub-Layer 1 FG, and Sub-Layer 2 FG
+- deterministic financial/value layer consuming accepted Phase 4 and Phase 5 outputs
+- deterministic outputs for inventory value, release value, carrying cost, and expiry/write-off exposure
 - unit tests
 - example configs and sample input files
 
 Out of scope:
-- financial engine
 - Monte Carlo runner
 - dashboarding / BI layer
 
@@ -47,8 +48,10 @@ Out of scope:
 - The authoritative Phase 2 upstream contract for Phase 3 is `phase2_deterministic_cascade.csv`.
 - The authoritative Phase 3 upstream contract for Phase 4 is `phase3_trade_layer.csv`.
 - The authoritative Phase 3 and Phase 4 upstream contracts for Phase 5 are `phase3_trade_layer.csv`, `base_phase4_monthly_summary.csv`, and `base_phase4_schedule_detail.csv` or their scenario-equivalent outputs.
+- The authoritative Phase 4 and Phase 5 upstream contracts for Phase 6 are `phase4_monthly_summary.csv`, `phase5_inventory_detail.csv`, and `phase5_monthly_summary.csv` or their scenario-equivalent outputs.
 - Phase 3 must remain upstream-contract driven and agnostic to whether treated demand was derived from direct treated-census input or from a later cohort / starts-duration build.
 - Phase 4 and Phase 5 must remain upstream-contract driven and agnostic to whether treated demand was derived from direct treated-census input or from a later cohort / starts-duration build.
+- Phase 6 must remain upstream-contract driven and agnostic to whether treated demand was derived from direct treated-census input or from a later cohort / starts-duration build.
 - Epidemiology is a validation / fallback layer only.
 - Engine grain must remain monthly across the full 240-month horizon.
 - Reporting rollups are downstream presentation logic, not a core calculation-grain change.

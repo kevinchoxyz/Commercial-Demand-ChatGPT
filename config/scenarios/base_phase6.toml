@@ -1,0 +1,12 @@
+scenario_name = "BASE_2029"
+parameter_config = "../parameters/phase6_financial_layer.toml"
+
+[inputs]
+phase4_monthly_summary = "../../data/outputs/base_phase4_monthly_summary.csv"
+phase5_inventory_detail = "../../data/outputs/base_phase5_inventory_detail.csv"
+phase5_monthly_inventory_summary = "../../data/outputs/base_phase5_monthly_inventory_summary.csv"
+
+[outputs]
+financial_detail = "../../data/outputs/base_phase6_financial_detail.csv"
+monthly_financial_summary = "../../data/outputs/base_phase6_monthly_financial_summary.csv"
+annual_financial_summary = "../../data/outputs/base_phase6_annual_financial_summary.csv"
